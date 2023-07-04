@@ -1,8 +1,9 @@
+#define TINY_GSM_MODEM_SIM7600
 #include <TinyGsmClient.h>
 #include <HttpClient.h>
 
 // Paramètres de l'APN (Point d'accès du réseau mobile)
-const char apn[] = "votre_apn";
+const char apn[] = "fnetnrj";
 const char gprsUser[] = "";
 const char gprsPass[] = "";
 
