@@ -9,7 +9,7 @@ const char gprsPass[] = "";
 // Paramètres du serveur Home Assistant
 const char* server = "harn134.duckdns.org";
 const int port = 443;
-const char* path = "/api/webhook/ESP32meteo"; // Remplacez par votre chemin de webhook
+const char* path = "/api/webhook/ESP32meteo"; 
 
 // Données de la station météo
 float temperature = 25.5;
