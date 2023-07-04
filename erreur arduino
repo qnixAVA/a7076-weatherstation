@@ -6,9 +6,3 @@ Response:
 HTTP Status Code: -3
 Response: 
 
-essayer en ajoutant: 
-
-const char* rootCACertificate = "-----BEGIN CERTIFICATE-----\n"
-                                "token duckdns"
-                                "-----END CERTIFICATE-----\n";
-et avant tinygsmclient : gsmClient.setCACert(rootCACertificate);
