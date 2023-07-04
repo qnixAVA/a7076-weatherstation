@@ -5,3 +5,9 @@ HTTP Status Code: -3
 Response: 
 HTTP Status Code: -3
 Response: 
+
+essayer en ajoutant: 
+
+const char* rootCACertificate = "-----BEGIN CERTIFICATE-----\n"
+                                "1fb50cb7-02dd-4a21-a0b8-36ebb811b988"
+                                "-----END CERTIFICATE-----\n";
