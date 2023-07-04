@@ -1,6 +1,8 @@
 #define TINY_GSM_MODEM_SIM7600
 #include <TinyGsmClient.h>
 #include <HttpClient.h>
+#include <TinyGsmClientSIM7600.h>
+#define SerialAT Serial1
 
 // Paramètres de l'APN (Point d'accès du réseau mobile)
 const char apn[] = "fnetnrj";
@@ -17,12 +19,12 @@ float temperature = 25.5;
 float humidity = 60.0;
 
 // Client GSM et client HTTP
-TinyGsm modem;
-TinyGsmClientSecure gsmClient(modem);
+TinyGsmSim7600 modem(SerialAT);
+TinyGsmClient gsmClient(modem);
 HttpClient http(gsmClient, server, port);
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   delay(1000);
 
   Serial.println("Initializing modem...");
