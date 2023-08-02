@@ -24,7 +24,7 @@ TinyGsmClient gsmClient(modem);
 HttpClient http(gsmClient, server, port);
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   delay(1000);
 
   Serial.println("Initializing modem...");
