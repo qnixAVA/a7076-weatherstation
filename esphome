@@ -1,0 +1,245 @@
+esphome:
+  name: esp32stationmeteo
+  friendly_name: esp32stationmeteo
+
+esp32:
+  board: esp-wrover-kit
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "
+
+ota:
+  password: 
+  
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Esp32 Fallback Hotspot"
+    password: 
+captive_portal:
+
+dallas:
+  - pin: 27
+    update_interval: 30s
+
+sensor:
+  - platform: dallas
+    address: 0x853ce1e3804dba28
+    name: "Living Room Temperature"
+    
+
+  - platform: template
+    name: "Battery Voltage"
+    id: "battery_voltage"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    update_interval: 30s
+    lambda: |-
+      uint16_t adc_value = analogRead(35);
+      float battery_voltage = ((float)adc_value / 4095.0) * 2.0 * 3.3 * (1100 / 1000.0);
+      battery_voltage += -0.1; // Ajouter -0,1 V de correction
+      return battery_voltage;
+      ESP_LOGD("ReadBatteryVoltage", "Battery Voltage: %.2fV", battery_voltage);
+     
+  - platform: adc
+    pin: GPIO34
+    name: "Solar charging voltage"
+    id: "solar_charging_voltage"
+    unit_of_measurement: V
+    accuracy_decimals: 2
+    update_interval: 30s
+    attenuation: auto
+    filters:
+      - multiply: 2
+
+  - platform: template
+    name: "Last Battery Voltage"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    update_interval: 30s
+    lambda: |-
+      return id(battery_voltage).state;
+
+  - platform: template
+    name: "Last Solar charging voltage"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    update_interval: 30s
+    lambda: |-
+      return id(solar_charging_voltage).state;
+
+  - platform: pulse_counter
+    pin:
+      number: GPIO26
+      inverted: True
+      mode: INPUT_PULLUP    
+    unit_of_measurement: 'mm'
+    update_interval: 2s
+    accuracy_decimals: 3
+    name: 'station_meteo_compteur_pluviometre'
+    id: rain_meter
+    filters:
+    - multiply:  0.01
+
+  - platform: pulse_counter
+    pin: 
+      number: GPIO14
+      mode: INPUT_PULLUP
+    name: 'Windspeed Meter'
+    icon: 'mdi:weather-windy'
+    id: wind_meter
+    unit_of_measurement: 'km/h'
+    accuracy_decimals: 1
+    update_interval: 30s
+    filters:
+      - multiply: 0.048 #1.492mph per rotation so 1 / 25 (update_fq) / 2 * 2.4
+
+
+  - platform: adc
+    id: wind_direction
+    pin: GPIO36
+    name: ADC wind
+    attenuation: auto
+    internal: true
+    update_interval: 30s
+
+  - platform: resistance
+    sensor: wind_direction
+    id: resistance_sensor
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    internal: true
+    name: Resistance Sensor
+    reference_voltage: 3.3V
+    accuracy_decimals: 1
+
+    on_value:
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 25000 
+              below: 35000 
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "N"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 0.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 5000 
+              below: 12000 
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "NE"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 45.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 100 
+              below: 1500 
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "E"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 90.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 1600 
+              below: 2600 
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "SE"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 135.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 2600 
+              below: 4900 
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "S"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 180.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 13000 
+              below: 19000 
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "SW"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 225.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 100000 
+              below: 130000 
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "W"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 270.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 50000 
+              below: 70000 
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "NW"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 315.0
+
+  - platform: template
+    name:  "wind heading"
+    id: wind_heading
+    unit_of_measurement: "°"
+    update_interval: 30s
+
+text_sensor:
+  - platform: template
+    name: "Wind Cardinal Direction"
+    id: wind_dir_card
+    update_interval: 30s
+
+  
