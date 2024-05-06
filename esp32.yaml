@@ -2,49 +2,143 @@ esphome:
   name: esp32stationmeteo
   friendly_name: esp32stationmeteo
 
+
+  on_boot:
+    then:
+      - script.execute: consider_deep_sleep
+      
+external_components:
+  - source:
+      type: local
+      path: include
+
+script:
+  - id: consider_deep_sleep
+    mode: queued
+    then:
+      - delay: 30s
+      - if:
+          condition:
+            or:
+             - binary_sensor.is_on: prevent_deep_sleep
+             - binary_sensor.is_on: GPIO13_rain 
+          then:
+            - logger.log: 'Skipping sleep, per prevent_deep_sleep'
+            - deep_sleep.prevent: deep_sleep_control
+          else:
+            - deep_sleep.enter: deep_sleep_control
+      - script.execute: consider_deep_sleep
+
+
+
+uart:
+  tx_pin: 26
+  rx_pin: 27
+  baud_rate: 115200
+  debug:
+    direction: BOTH
+    dummy_receiver: false
+    after:
+      delimiter: "\n"
+    sequence:
+      - lambda: UARTDebug::log_string(direction, bytes);
+      
+
+
+
+
+# Enable logging
+logger:
+  baud_rate: 0
+
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: ""
+
+
+ota:
+  password: ""
+
+
+
 esp32:
   board: esp-wrover-kit
   framework:
     type: arduino
 
-# Enable logging
-logger:
-
-# Enable Home Assistant API
-api:
-  encryption:
-    key: "
-
-ota:
-  password: 
-  
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-
-
+  fast_connect: true
+  
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     ssid: "Esp32 Fallback Hotspot"
-    password: 
-captive_portal:
+    password: "Og8I4R98jE1X"
+    
+button:
+- platform: restart
+  name: "ESP32 Restart"
 
+binary_sensor:
+
+  - platform: status
+    name: "esp32stationmeteo_status"
+
+  - platform: homeassistant
+    id: prevent_deep_sleep
+    name: "Prevent Deep Sleep"
+    entity_id: input_boolean.prevent_deep_sleep
+
+  - platform: gpio
+    id: GPIO13_rain
+    pin:
+      number: GPIO13
+      mode: INPUT_PULLUP
+      inverted: True 
+    name: "Rain Meter GPIO13"
+    filters:
+      - delayed_off: 20min
+      
+
+
+deep_sleep:
+  id: deep_sleep_control
+  run_duration:
+    default: 30s
+    gpio_wakeup_reason: 30s
+  sleep_duration: 120s
+  wakeup_pin:
+    number: GPIO13
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+
+  
+
+ 
 dallas:
-  - pin: 27
-    update_interval: 30s
+  - pin: 15
+    update_interval: 5s
 
 sensor:
+
+
   - platform: dallas
     address: 0x853ce1e3804dba28
-    name: "Living Room Temperature"
+    name: "Température extérieur"
+    id: temperature_exterieur
     
 
   - platform: template
     name: "Battery Voltage"
-    id: "battery_voltage"
+    id: battery_voltage
     unit_of_measurement: "V"
     accuracy_decimals: 2
-    update_interval: 30s
+    update_interval: 5s
     lambda: |-
       uint16_t adc_value = analogRead(35);
       float battery_voltage = ((float)adc_value / 4095.0) * 2.0 * 3.3 * (1100 / 1000.0);
@@ -55,33 +149,18 @@ sensor:
   - platform: adc
     pin: GPIO34
     name: "Solar charging voltage"
-    id: "solar_charging_voltage"
+    id: solar_charging_voltage
     unit_of_measurement: V
     accuracy_decimals: 2
-    update_interval: 30s
+    update_interval: 5s
     attenuation: auto
     filters:
       - multiply: 2
 
-  - platform: template
-    name: "Last Battery Voltage"
-    unit_of_measurement: "V"
-    accuracy_decimals: 2
-    update_interval: 30s
-    lambda: |-
-      return id(battery_voltage).state;
-
-  - platform: template
-    name: "Last Solar charging voltage"
-    unit_of_measurement: "V"
-    accuracy_decimals: 2
-    update_interval: 30s
-    lambda: |-
-      return id(solar_charging_voltage).state;
 
   - platform: pulse_counter
     pin:
-      number: GPIO26
+      number: GPIO13
       inverted: True
       mode: INPUT_PULLUP    
     unit_of_measurement: 'mm'
@@ -91,7 +170,7 @@ sensor:
     id: rain_meter
     filters:
     - multiply:  0.01
-
+  
   - platform: pulse_counter
     pin: 
       number: GPIO14
@@ -100,10 +179,12 @@ sensor:
     icon: 'mdi:weather-windy'
     id: wind_meter
     unit_of_measurement: 'km/h'
+    internal_filter: 10us
     accuracy_decimals: 1
-    update_interval: 30s
+    update_interval: 5s
     filters:
-      - multiply: 0.048 #1.492mph per rotation so 1 / 25 (update_fq) / 2 * 2.4
+      - multiply: 0.04 #2,4kmh par rotation
+
 
 
   - platform: adc
@@ -112,7 +193,7 @@ sensor:
     name: ADC wind
     attenuation: auto
     internal: true
-    update_interval: 30s
+    update_interval: 5s
 
   - platform: resistance
     sensor: wind_direction
@@ -199,7 +280,7 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "SW"
+                state: "SO"
             - sensor.template.publish:
                 id: wind_heading
                 state: 225.0
@@ -212,7 +293,7 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "W"
+                state: "O"
             - sensor.template.publish:
                 id: wind_heading
                 state: 270.0
@@ -225,7 +306,7 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "NW"
+                state: "NO"
             - sensor.template.publish:
                 id: wind_heading
                 state: 315.0
@@ -234,12 +315,38 @@ sensor:
     name:  "wind heading"
     id: wind_heading
     unit_of_measurement: "°"
-    update_interval: 30s
+    update_interval: 5s
+  
 
 text_sensor:
   - platform: template
     name: "Wind Cardinal Direction"
     id: wind_dir_card
-    update_interval: 30s
+    update_interval: 5s
+  - platform: template
+    id: sms_sender
+    name: "Sms Sender"
+  - platform: template
+    id: sms_message
+    name: "Sms Message"
+  - platform: template
+    id: caller_id_text_sensor
+    name: "Caller ID"
+  - platform: template
+    id: ussd_message
+    name: "Ussd Code"
 
-  
+  - platform: template
+    id: weather_data
+    update_interval: 10s
+    lambda: |-
+      std::string val = id(wind_dir_card).state; 
+      return {"{Temperature_exterieure: " + std::to_string(id(temperature_exterieur).state) + "°C," 
+      "Battery_Voltage: " + std::to_string(id(battery_voltage).state) + "V," +
+      "Solar_Charging_Voltage: " + std::to_string(id(solar_charging_voltage).state) + "V," +
+      "Rainfall: " + std::to_string(id(rain_meter).state) + "mm," +
+      "Wind_Speed: " + std::to_string(id(wind_meter).state) + "km/h," +
+      "Wind_Direction: " + val.c_str() + "," +
+      "Wind_Heading: " + std::to_string(id(wind_heading).state) + "°}"};
+ 
+
