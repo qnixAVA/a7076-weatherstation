@@ -10,12 +10,16 @@
  * * Example uses a forked TinyGSM <https://github.com/lewisxhe/TinyGSM>, which will not compile successfully using the mainline TinyGSM.
  */
 #define TINY_GSM_RX_BUFFER          1024 // Set RX buffer to 1Kb
- #define TINY_GSM_DEBUG Serial
+#define TINY_GSM_DEBUG Serial
+
+
 // See all AT commands, if wanted
 // #define DUMP_AT_COMMANDS
 
 #include "utilities.h"
 #include <TinyGsmClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 #ifdef DUMP_AT_COMMANDS  // if enabled it requires the streamDebugger lib
 #include <StreamDebugger.h>
@@ -27,6 +31,11 @@ TinyGsm modem(SerialAT);
 
 
 const char *server_url =  "http://rn134ha.duckdns.org/api/webhook/weather_station_webhook_temp";
+
+#define DALLAS_PIN 15
+OneWire oneWire(DALLAS_PIN);
+DallasTemperature sensors(&oneWire);
+
 
 void setup()
 {
@@ -164,7 +173,12 @@ void setup()
     modem.https_set_accept_type("application/json");
     modem.https_set_user_agent("TinyGSM/LilyGo-A76XX");
 
-String post_body = "{\"temperature\":9559}";
+    sensors.begin();
+    sensors.requestTemperatures();
+    float temperature = sensors.getTempCByIndex(0);
+
+ String post_body = "{\"temperature\":" + String(temperature, 2) + "}";
+
 
     int httpCode = modem.https_post(post_body);
     if (httpCode != 200) {
