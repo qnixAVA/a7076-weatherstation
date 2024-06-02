@@ -192,6 +192,7 @@ void setup() {
 
     modem.https_add_header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6");
     modem.https_add_header("Accept-Encoding", "gzip, deflate, br");
+    modem.https_add_header("Content-Type", "application/json");
     modem.https_set_accept_type("application/json");
     modem.https_set_user_agent("TinyGSM/LilyGo-A76XX");
 }
