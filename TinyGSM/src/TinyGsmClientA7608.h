@@ -1,13 +1,13 @@
 /**
- * @file       TinyGsmClientA7670.h
+ * @file       TinyGsmClientA7608.h
  * @author     Volodymyr Shymanskyy
  * @license    LGPL-3.0
  * @copyright  Copyright (c) 2016 Volodymyr Shymanskyy
  * @date       Nov 2016
  */
 
-#ifndef SRC_TINYGSMCLIENTA7670_H_
-#define SRC_TINYGSMCLIENTA7670_H_
+#ifndef SRC_TINYGSMCLIENTA7608_H_
+#define SRC_TINYGSMCLIENTA7608_H_
 
 // #define TINY_GSM_DEBUG Serial
 // #define TINY_GSM_USE_HEX
@@ -54,49 +54,50 @@ enum NetworkMode {
   MODEM_NETWORK_LTE = 38,
 };
 
-class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
-                       public TinyGsmGPRS<TinyGsmA7670>,
-                       public TinyGsmTCP<TinyGsmA7670, TINY_GSM_MUX_COUNT>,
-                       public TinyGsmSMS<TinyGsmA7670>,
-                       public TinyGsmGSMLocation<TinyGsmA7670>,
-                       public TinyGsmGPS<TinyGsmA7670>,
-                       public TinyGsmTime<TinyGsmA7670>,
-                       public TinyGsmNTP<TinyGsmA7670>,
-                       public TinyGsmBattery<TinyGsmA7670>,
-                       public TinyGsmTemperature<TinyGsmA7670>,
-                       public TinyGsmCalling<TinyGsmA7670>,
-                       public TinyGsmMqttA76xx<TinyGsmA7670, TINY_GSM_MQTT_CLI_COUNT>,
-                       public TinyGsmHttpsA76xx<TinyGsmA7670>
- {
-  friend class TinyGsmModem<TinyGsmA7670>;
-  friend class TinyGsmGPRS<TinyGsmA7670>;
-  friend class TinyGsmTCP<TinyGsmA7670, TINY_GSM_MUX_COUNT>;
-  friend class TinyGsmSMS<TinyGsmA7670>;
-  friend class TinyGsmGPS<TinyGsmA7670>;
-  friend class TinyGsmGSMLocation<TinyGsmA7670>;
-  friend class TinyGsmTime<TinyGsmA7670>;
-  friend class TinyGsmNTP<TinyGsmA7670>;
-  friend class TinyGsmBattery<TinyGsmA7670>;
-  friend class TinyGsmTemperature<TinyGsmA7670>;
-  friend class TinyGsmCalling<TinyGsmA7670>;
-  friend class TinyGsmMqttA76xx<TinyGsmA7670, TINY_GSM_MQTT_CLI_COUNT>;
-  friend class TinyGsmHttpsA76xx<TinyGsmA7670>;
+class TinyGsmA7608 : public TinyGsmModem<TinyGsmA7608>,
+                       public TinyGsmGPRS<TinyGsmA7608>,
+                       public TinyGsmTCP<TinyGsmA7608, TINY_GSM_MUX_COUNT>,
+                       public TinyGsmSMS<TinyGsmA7608>,
+                       public TinyGsmGSMLocation<TinyGsmA7608>,
+                       public TinyGsmGPS<TinyGsmA7608>,
+                       public TinyGsmTime<TinyGsmA7608>,
+                       public TinyGsmNTP<TinyGsmA7608>,
+                       public TinyGsmBattery<TinyGsmA7608>,
+                       public TinyGsmTemperature<TinyGsmA7608>,
+                       public TinyGsmCalling<TinyGsmA7608>,
+                       public TinyGsmMqttA76xx<TinyGsmA7608, TINY_GSM_MQTT_CLI_COUNT>,
+                       public TinyGsmHttpsA76xx<TinyGsmA7608>
+
+{
+  friend class TinyGsmModem<TinyGsmA7608>;
+  friend class TinyGsmGPRS<TinyGsmA7608>;
+  friend class TinyGsmTCP<TinyGsmA7608, TINY_GSM_MUX_COUNT>;
+  friend class TinyGsmSMS<TinyGsmA7608>;
+  friend class TinyGsmGPS<TinyGsmA7608>;
+  friend class TinyGsmGSMLocation<TinyGsmA7608>;
+  friend class TinyGsmTime<TinyGsmA7608>;
+  friend class TinyGsmNTP<TinyGsmA7608>;
+  friend class TinyGsmBattery<TinyGsmA7608>;
+  friend class TinyGsmTemperature<TinyGsmA7608>;
+  friend class TinyGsmCalling<TinyGsmA7608>;
+  friend class TinyGsmMqttA76xx<TinyGsmA7608, TINY_GSM_MQTT_CLI_COUNT>;
+  friend class TinyGsmHttpsA76xx<TinyGsmA7608>;
 
   /*
    * Inner Client
    */
  public:
-  class GsmClientA7670 : public GsmClient {
-    friend class TinyGsmA7670;
+  class GsmClientA7608 : public GsmClient {
+    friend class TinyGsmA7608;
 
    public:
-    GsmClientA7670() {}
+    GsmClientA7608() {}
 
-    explicit GsmClientA7670(TinyGsmA7670& modem, uint8_t mux = 0) {
+    explicit GsmClientA7608(TinyGsmA7608& modem, uint8_t mux = 0) {
       init(&modem, mux);
     }
 
-    bool init(TinyGsmA7670* modem, uint8_t mux = 0) {
+    bool init(TinyGsmA7608* modem, uint8_t mux = 0) {
       this->at       = modem;
       sock_available = 0;
       prev_check     = 0;
@@ -145,12 +146,12 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
    */
 
   /*TODO(?))
-  class GsmClientSecureA7670 : public GsmClientA7670
+  class GsmClientSecureSIM7600 : public GsmClientA7608
   {
   public:
     GsmClientSecure() {}
 
-    GsmClientSecure(TinyGsmA7670& modem, uint8_t mux = 0)
+    GsmClientSecure(TinyGsmA7608& modem, uint8_t mux = 0)
      : public GsmClient(modem, mux)
     {}
 
@@ -170,7 +171,7 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
    * Constructor
    */
  public:
-  explicit TinyGsmA7670(Stream& stream) : stream(stream) {
+  explicit TinyGsmA7608(Stream& stream) : stream(stream) {
     memset(sockets, 0, sizeof(sockets));
   }
 
@@ -180,7 +181,7 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
  protected:
   bool initImpl(const char* pin = NULL) {
     DBG(GF("### TinyGSM Version:"), TINYGSM_VERSION);
-    DBG(GF("### TinyGSM Compiled Module:  TinyGsmClientA7670"));
+    DBG(GF("### TinyGSM Compiled Module:  TinyGsmClientA7608"));
 
     if (!testAT()) { return false; }
 
@@ -337,7 +338,6 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
     return res;
   }
 
-
   bool enableNetwork(){
     sendAT(GF("+NETOPEN"));  
     int res = waitResponse(GF("+NETOPEN: 0"),GF("+IP ERROR: Network is already opened")); 
@@ -353,12 +353,11 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
       return false;
     }
     int res = waitResponse(GF("+NETCLOSE: 0"),GF("+NETCLOSE: 2")); 
-    if (res != 1 && res != 2){
+    if (res != 1 || res != 2){
       return false;
     }
     return true;
   }
-
   /*
    * GPRS functions
    */
@@ -501,24 +500,30 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
  protected:
   // enable GPS
   bool enableGPSImpl(int8_t power_en_pin ,uint8_t enable_level) {
-    if(power_en_pin!= -1){
+    if(power_en_pin == GSM_MODEM_AUX_POWER){
+      sendAT("+CVAUXS=1");
+      waitResponse();
+    }else if(power_en_pin != -1){
       sendAT("+CGDRT=",power_en_pin,",1");
       waitResponse();
       sendAT("+CGSETV=",power_en_pin,",",enable_level);
       waitResponse();
-    }
+    } 
     sendAT(GF("+CGNSSPWR=1"));  
-    if (waitResponse(10000UL, GF("+CGNSSPWR: READY!")) != 1) { return false; }
+    if (waitResponse(10000UL,"+CGNSSPWR: READY!") != 1) { return false; }
     return true;
   }
 
   bool disableGPSImpl(int8_t power_en_pin ,uint8_t disbale_level) {
-    if(power_en_pin!= -1){
+    if(power_en_pin == GSM_MODEM_AUX_POWER){
+      sendAT("+CVAUXS=0");
+      waitResponse();
+    }else if(power_en_pin != -1){
       sendAT("+CGSETV=",power_en_pin,",",disbale_level);
       waitResponse();
       sendAT("+CGDRT=",power_en_pin,",0");
       waitResponse();
-    }
+    } 
     sendAT(GF("+CGNSSPWR=0"));  
     if (waitResponse() != 1) { return false; }
     return true;
@@ -547,7 +552,7 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
                   int* year = 0, int* month = 0, int* day = 0, int* hour = 0,
                   int* minute = 0, int* second = 0) {
     sendAT(GF("+CGNSSINFO"));
-    if (waitResponse(GF(GSM_NL "+CGNSSINFO:")) != 1) { return false; }
+    if (waitResponse(GF(GSM_NL "+CGNSSINFO: ")) != 1) { return false; }
 
     uint8_t fixMode = streamGetIntBefore(',');  // mode 2=2D Fix or 3=3DFix
                                                 // TODO(?) Can 1 be returned
@@ -568,11 +573,13 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
       int   ihour        = 0;
       int   imin         = 0;
       float secondWithSS = 0;
-
-      streamSkipUntil(',');               // GPS satellite valid numbers
-      streamSkipUntil(',');               // GLONASS satellite valid numbers
-      streamSkipUntil(',');               // skip dump , A7670
-      streamSkipUntil(',');               // BEIDOU satellite valid numbers
+      // 20240513 fixed
+      // A7600M7_B11V05_231108
+      // +CGNSSINFO: 3,13,14,,,xx.xxxx,N,xx.xxxx,E,130524,035736.00,53.6,0.000,,1.7,1.2,1.1,
+      streamSkipUntil(',');               // GPS-SVs      satellite valid numbers
+      streamSkipUntil(',');               // BEIDOU-SVs   satellite valid numbers
+      streamSkipUntil(',');               // GLONASS-SVs  satellite valid numbers
+      streamSkipUntil(',');               // GALILEO-SVs  satellite valid numbers
       ilat  = streamGetFloatBefore(',');  // Latitude in ddmm.mmmmmm
       /* north =  */stream.read();              // N/S Indicator, N=north or S=south
       streamSkipUntil(',');
@@ -588,8 +595,7 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
       // UTC Time. Output format is hhmmss.s
       ihour = streamGetIntLength(2);  // Two digit hour
       imin  = streamGetIntLength(2);  // Two digit minute
-      secondWithSS =
-      streamGetFloatBefore(',');  // 4 digit second with subseconds
+      secondWithSS = streamGetFloatBefore(',');  // 4 digit second with subseconds
 
       ialt   = streamGetFloatBefore(',');  // MSL Altitude. Unit is meters
       ispeed = streamGetFloatBefore(',');  // Speed Over Ground. Unit is knots.
@@ -603,18 +609,13 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
           *status = fixMode;
       }
       // Set pointers
-      if (lat != NULL){
-          *lat = ilat;
-      }
-      if (lon != NULL){
-          *lon = ilon;
-      }
+      if (lat != NULL)  *lat = ilat;
+      if (lon != NULL)  *lon = ilon;
       if (speed != NULL) *speed = ispeed;
       if (alt != NULL) *alt = ialt;
       if (vsat != NULL) *vsat = ivsat;
       if (usat != NULL) *usat = iusat;
       if (accuracy != NULL) *accuracy = iaccuracy;
-      if (iyear < 2000) iyear += 2000;
       if (year != NULL) *year = iyear;
       if (month != NULL) *month = imonth;
       if (day != NULL) *day = iday;
@@ -623,6 +624,11 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
       if (second != NULL) *second = static_cast<int>(secondWithSS);
 
       waitResponse();
+      // Sometimes, although fix is displayed, 
+      // the value of longitude and latitude 0 will be set as invalid
+      if(ilat == 0 || ilon == 0){
+        return false;
+      }
       return true;
     }
     waitResponse();
@@ -646,10 +652,57 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
 
   bool enableNMEAImpl(){
       sendAT("+CGNSSTST=1");
-      waitResponse(1000L);
+      if(waitResponse(1000L) != 1){
+          return false;
+      }
     // Select the output port for NMEA sentence
       sendAT("+CGNSSPORTSWITCH=0,1");
-      return waitResponse(1000L) == 1;
+      if(waitResponse(1000L) != 1){
+          return false;
+      }
+
+
+    /*
+        20240513 
+        Manufacturer: INCORPORATED
+        Model: A7608E-H
+        Revision: A50C4B11A7600M7
+        A7600M7_B11V05_231108
+        QCN:
+        IMEI: 861513066221920
+        MEID:
+        +GCAP: +CGSM,+FCLASS,+DS
+        DeviceInfo:
+      A7600M7_B11V05_231108 version removes turning off GPS when NMEA is enabled
+      REMOVE:
+        // if(!disableGPSImpl(-1,0)){
+        //   return false;
+        // }
+    * * * * */
+
+
+      /*
+        20240507
+        A7600M7_B11V05_231108 version will not return <+CGNSSPWR: READY!> 
+        but will be returned in earlier versions. Redirect the NMEA sentence to the AT port and only check whether it returns OK.
+
+        Manufacturer: INCORPORATED
+        Model: A7608SA-H
+        Revision: A50C4B11A7600M7
+        A7600M7_B11V05_231108
+        QCN:
+        IMEI: XXXXXXXXXXXXXXXXXXX
+        MEID:
+        +GCAP: +CGSM,+FCLASS,+DS
+        DeviceInfo:
+        // if(!enableGPSImpl(-1,0)){
+        //   return false;
+        // }
+      * 
+      * * */
+      // sendAT(GF("+CGNSSPWR=1"));  
+      // if (waitResponse(10000UL) != 1) { return false; }
+      return true;
   }
 
   bool disableNMEAImpl(){
@@ -983,8 +1036,8 @@ class TinyGsmA7670 : public TinyGsmModem<TinyGsmA7670>,
   Stream& stream;
 
  protected:
-  GsmClientA7670* sockets[TINY_GSM_MUX_COUNT];
+  GsmClientA7608* sockets[TINY_GSM_MUX_COUNT];
   const char*       gsmNL = GSM_NL;
 };
 
-#endif  // SRC_TINYGSMCLIENTA7670_H_
+#endif  // SRC_TINYGSMCLIENTA7608_H_
