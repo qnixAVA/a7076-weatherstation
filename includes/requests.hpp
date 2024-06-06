@@ -5,20 +5,16 @@
 #include "utilities.h"
 #include <TinyGsmClient.h>
 
-
 class Requests {
 
 private:
-    TinyGsm modem;
+    TinyGsm modem(SerialAT);
     const String server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station_webhook";
     String ueInfo;
     String ipAddress;
 
 public:
     Requests() {
-
-         modem(SerialAT);
-
          // Initialize the modem
          SerialAT.begin(115200, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
          pinMode(BOARD_POWERON_PIN, OUTPUT);
@@ -50,7 +46,6 @@ public:
              }
          }
          Serial.println();
-
     }
 
     bool checkSim() {
@@ -65,7 +60,6 @@ public:
             case SIM_LOCKED:
                 Serial.println("The SIM card is locked. Please unlock the SIM card first.");
                 return false;
-                break;
             default:
                 break;
             }
@@ -74,9 +68,7 @@ public:
         return true;
     }
 
-
-   bool registerNetwork() {
-
+    bool registerNetwork() {
        #ifndef TINY_GSM_MODEM_SIM7672
            if (!modem.setNetworkMode(MODEM_NETWORK_AUTO)) {
                Serial.println("Set network mode failed!");
@@ -126,65 +118,57 @@ public:
            Serial.println(ueInfo);
        }
 
-
+       if (!modem.enableNetwork()) {
+           Serial.println("Enable network failed!");
+           // Throw exception
+       }
        return ueInfo;
    }
 
-  bool enableNetwork() {
-      getUEInfo();
+   String getIpAddr() {
+       ipAddress = modem.getLocalIP();
+       Serial.print("Network IP:");
+       Serial.println(ipAddress);
+       return ipAddress;
+   }
 
-      if (!modem.enableNetwork()) {
-          Serial.println("Enable network failed!");
-          return false;
-          // Throw exception
-      }
-      return true;
-  }
+   bool initHttps() {
+       // Initialize HTTPS
+       modem.https_begin();
 
-  String getIpAddr() {
-      ipAddress = modem.getLocalIP();
-      Serial.print("Network IP:"); Serial.println(ipAddress);
-      return ipAddress;
-  }
+       // Set GET URL
+       if (!modem.https_set_url(server_url)) {
+           Serial.println("Failed to set the URL. Please check the validity of the URL!");
+           return false;
+       }
 
-  bool initHttps() {
-      // Initialize HTTPS
-      modem.https_begin();
+       modem.https_add_header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6");
+       modem.https_add_header("Accept-Encoding", "gzip, deflate, br");
+       modem.https_add_header("Content-Type", "application/json");
+       modem.https_set_accept_type("application/json");
+       modem.https_set_user_agent("TinyGSM/LilyGo-A76XX");
+       return true;
+   }
 
-      // Set GET URT
-      if (!modem.https_set_url(server_url)) {
-          Serial.println("Failed to set the URL. Please check the validity of the URL!");
-          return false;
-      }
+   String postHttpsRequests(String post_body) {
+       // Send HTTP POST request
+       int httpCode = modem.https_post(post_body);
+       if (httpCode != 200) {
+           Serial.print("HTTP POST request failed! Error code = ");
+           Serial.println(httpCode);
+           return ""; // Return error chain
+       }
 
-      modem.https_add_header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6");
-      modem.https_add_header("Accept-Encoding", "gzip, deflate, br");
-      modem.https_add_header("Content-Type", "application/json");
-      modem.https_set_accept_type("application/json");
-      modem.https_set_user_agent("TinyGSM/LilyGo-A76XX");
-  }
+       // Read and print the HTTP response
+       String header = modem.https_header();
+       Serial.print("HTTP header:");
+       Serial.println(header);
 
-  String postHttpsRequests(String post_body) {
-      // Send HTTP POST request
-      int httpCode = modem.https_post(post_body);
-      if (httpCode != 200) {
-          Serial.print("HTTP POST request failed! Error code = ");
-          Serial.println(httpCode);
-          return ""; // Return error chain
-      }
-
-      // Read and print the HTTP response
-      String header = modem.https_header();
-      Serial.print("HTTP header:");
-      Serial.println(header);
-
-      String body = modem.https_body();
-      Serial.print("HTTP body:");
-      Serial.println(body);
-      return body;
-  }
-
-
+       String body = modem.https_body();
+       Serial.print("HTTP body:");
+       Serial.println(body);
+       return body;
+   }
 };
 
 #endif
