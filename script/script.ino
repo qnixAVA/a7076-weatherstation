@@ -28,7 +28,7 @@ const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station
 #define ONE_WIRE_BUS 15
 #define WIND_DIRECTION_PIN 36
 #define WIND_SPEED_PIN 14
-#define RAINFALL_PIN 13
+#define RAINFALL_PIN 32
 
 // Initialize OneWire and DallasTemperature
 OneWire oneWire(ONE_WIRE_BUS);
@@ -47,7 +47,7 @@ void setup() {
     } else {
         // Wake up from deep sleep
         Serial.println("Wake up from deep sleep");
-        wakeUp();
+        //wakeUp();
     }
 
     // Initialize the weather meter kit
@@ -224,13 +224,16 @@ void loop() {
     float windSpeed = weatherMeterKit.getWindSpeed();
     float totalRainfall = weatherMeterKit.getTotalRainfall();
 
+
     // Préparer le corps de la requête POST
     String post_body = "{\"temperature\":" + String(temperature, 2) +
                        ", \"battery_voltage\":" + String(batteryVoltage / 1000.0, 2) +
-                       ", \"solar_voltage\":" + String(solarVoltage / 1000.0, 2) +
-                       ", \"wind_direction\":" + String(windDirection, 2) +
+                       ", \"solar_charging_voltage\":" + String(solarVoltage / 1000.0, 2) +
+                       ", \"wind_heading\":" + String(windDirection, 2) +
                        ", \"wind_speed\":" + String(windSpeed, 2) +
                        ", \"total_rainfall\":" + String(totalRainfall, 2) + "}";
+
+    Serial.println(post_body);
 
     // Envoyer la requête POST HTTP
     int httpCode = modem.https_post(post_body);
@@ -250,10 +253,12 @@ void goToSleep() {
     Serial.println("Preparing to sleep");
 
     // Mettre le modem en mode sommeil
+    // ?
     pinMode(MODEM_DTR_PIN, OUTPUT);
     digitalWrite(MODEM_DTR_PIN, HIGH);
     gpio_hold_en((gpio_num_t)MODEM_DTR_PIN);
 
+/*
 #ifdef BOARD_POWERON_PIN
     gpio_hold_en((gpio_num_t)BOARD_POWERON_PIN);
 #endif
@@ -262,7 +267,8 @@ void goToSleep() {
     digitalWrite(MODEM_RESET_PIN, !MODEM_RESET_LEVEL);
     gpio_hold_en((gpio_num_t)MODEM_RESET_PIN);
 #endif
-
+*/
+    digitalWrite(BOARD_POWERON_PIN, LOW);// Desactive l'alim du module
     // Configurez l'ESP32 pour se réveiller après un certain temps
     esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
 
@@ -274,7 +280,7 @@ void goToSleep() {
 // Fonction pour initialiser le réveil du modem et de l'ESP32
 void wakeUp() {
     Serial.println("Waking up");
-
+/*
     // Relâchez le maintien du GPIO
     gpio_hold_dis((gpio_num_t)MODEM_DTR_PIN);
 
@@ -285,18 +291,28 @@ void wakeUp() {
 #ifdef MODEM_RESET_PIN
     gpio_hold_dis((gpio_num_t)MODEM_RESET_PIN);
 #endif
-
+*/
     // Réveillez le modem
     pinMode(MODEM_DTR_PIN, OUTPUT);
     digitalWrite(MODEM_DTR_PIN, LOW);
     delay(2000);
     modem.sleepEnable(false);
 
-    // Vérifiez si le modem est en ligne
-    Serial.println("Check modem online.");
-    while (!modem.testAT()) {
-        Serial.print(".");
-        delay(500);
-    }
+    // Check modem connection
+  /*  int retry = 0;
+    while (!modem.testAT(1000)) {
+        Serial.println(".");
+        if (retry++ > 10) {
+            digitalWrite(BOARD_PWRKEY_PIN, LOW);
+            delay(100);
+            digitalWrite(BOARD_PWRKEY_PIN, HIGH);
+            delay(1000);
+            digitalWrite(BOARD_PWRKEY_PIN, LOW);
+            retry = 0;
+        }
+    }*/ //Cette partie est de nouveau dans l'init()
+    Serial.println();
     Serial.println("Modem is online!");
+    return;
+
 }
