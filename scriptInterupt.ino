@@ -8,6 +8,7 @@
 #include <DallasTemperature.h>
 #include "utilities.h"
 #include <TinyGsmClient.h>
+#include <Ticker.h>
 
 #define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
 #define TIME_TO_SLEEP 300          /* Time ESP32 will go to sleep (in seconds) */
@@ -31,35 +32,34 @@ const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station
 #define RAINFALL_PIN 32
 
 volatile uint16_t rainCount = 0; // Variable to count rain bucket tips
+Ticker debounceTimer;
 
-// Initialize OneWire and DallasTemperature
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
-
-// Create an instance of the weather meter kit
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
 
 void IRAM_ATTR rainISR() {
-    rainCount++;
+    debounceTimer.detach(); // Detach any existing timer
+    debounceTimer.attach_ms(10, []() {
+        if (digitalRead(RAINFALL_PIN) == LOW) {
+            rainCount++;
+        }
+    });
 }
 
 void setup() {
     Serial.begin(115200);
-    Serial.println(F("Weather Station Example"));
+    Serial.println(F("Setup ..."));
 
     if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
-        // Normal startup initialization
         Serial.println("Normal startup");
     } else {
-        // Wake up from deep sleep
         Serial.println("Wake up from deep sleep");
-        //wakeUp();
     }
 
     // Init des calibration params
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
 
-    // Calibration orientation vent
     calibrationParams.vaneADCValues[WMK_ANGLE_0_0] = 3143;
     calibrationParams.vaneADCValues[WMK_ANGLE_22_5] = 1624;
     calibrationParams.vaneADCValues[WMK_ANGLE_45_0] = 1845;
@@ -77,28 +77,21 @@ void setup() {
     calibrationParams.vaneADCValues[WMK_ANGLE_315_0] = 3548;
     calibrationParams.vaneADCValues[WMK_ANGLE_337_5] = 2810;
 
-    calibrationParams.mmPerRainfallCount = 0.2794; // Taille godet
+    calibrationParams.mmPerRainfallCount = 0.2794; // Taille godet // FIXME sert plus a rien du coup
     calibrationParams.minMillisPerRainfall = 2000; // Deux seconde de debouce
 
     calibrationParams.kphPerCountPerSec = 2.4;
     calibrationParams.windSpeedMeasurementPeriodMillis = 1000;
 
-    // On upload les params de calibration
     weatherMeterKit.setCalibrationParams(calibrationParams);
     weatherMeterKit.begin();
 
-    // Initialize the rain gauge interrupt
     pinMode(RAINFALL_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
-    //FIXME sert pour la batterie ?
-    // Set ADC resolution
     analogReadResolution(12);
-
-    // Initialize the temperature sensor
     sensors.begin();
 
-    // Initialize the modem
     SerialAT.begin(115200, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
     pinMode(BOARD_POWERON_PIN, OUTPUT);
     digitalWrite(BOARD_POWERON_PIN, HIGH);
@@ -115,7 +108,6 @@ void setup() {
     delay(100);
     digitalWrite(BOARD_PWRKEY_PIN, LOW);
 
-    // Check modem connection
     int retry = 0;
     while (!modem.testAT(1000)) {
         Serial.println(".");
@@ -130,7 +122,6 @@ void setup() {
     }
     Serial.println();
 
-    // Check SIM card
     SimStatus sim = SIM_ERROR;
     while (sim != SIM_READY) {
         sim = modem.getSimStatus();
@@ -198,15 +189,13 @@ void setup() {
         Serial.println("Enable network failed!");
     }
 
-    delay(5000);
+    delay(2000);
 
     String ipAddress = modem.getLocalIP();
     Serial.print("Network IP:"); Serial.println(ipAddress);
 
-    // Initialize HTTPS
     modem.https_begin();
 
-    // Set GET URT
     if (!modem.https_set_url(server_url)) {
         Serial.println("Failed to set the URL. Please check the validity of the URL!");
         return;
@@ -220,31 +209,24 @@ void setup() {
 }
 
 void loop() {
-    // Lire les données de température
     sensors.requestTemperatures();
     float temperature = sensors.getTempCByIndex(0);
 
-    // Caractériser l'ADC pour une mesure précise
     esp_adc_cal_characteristics_t adc_chars;
     esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
 
-    // Lire et convertir la valeur ADC pour la batterie
     uint16_t batteryADC = analogRead(BATTERY_PIN);
     uint32_t batteryVoltage = esp_adc_cal_raw_to_voltage(batteryADC, &adc_chars) * 2;
 
-    // Lire et convertir la valeur ADC pour le panneau solaire
     uint16_t solarADC = analogRead(SOLAR_PIN);
     uint32_t solarVoltage = esp_adc_cal_raw_to_voltage(solarADC, &adc_chars) * 2;
 
-    // Lire les données météorologiques
     float windDirection = weatherMeterKit.getWindDirection();
     float windSpeed = weatherMeterKit.getWindSpeed();
-    float totalRainfall = rainCount * 0.2794; // Convert rain count to mm
+    float totalRainfall = rainCount * 0.2794;
 
-    // Réinitialiser le compteur de pluie
     rainCount = 0;
 
-    // Préparer le corps de la requête POST
     String post_body = "{\"temperature\":" + String(temperature, 2) +
                        ", \"battery_voltage\":" + String(batteryVoltage / 1000.0, 2) +
                        ", \"solar_charging_voltage\":" + String(solarVoltage / 1000.0, 2) +
@@ -254,7 +236,6 @@ void loop() {
 
     Serial.println(post_body);
 
-    // Envoyer la requête POST HTTP
     int httpCode = modem.https_post(post_body);
     if (httpCode != 200) {
         Serial.print("HTTP POST request failed! Error code = ");
@@ -263,25 +244,19 @@ void loop() {
         Serial.println("Data sent successfully!");
     }
 
-    // Mise en veille profonde
     goToSleep();
 }
 
-// Fonction pour mettre en veille le modem GSM et l'ESP32
 void goToSleep() {
     Serial.println("Preparing to sleep");
 
-    // Mettre le modem en mode sommeil
-    // ?
     pinMode(MODEM_DTR_PIN, OUTPUT);
     digitalWrite(MODEM_DTR_PIN, HIGH);
     gpio_hold_en((gpio_num_t)MODEM_DTR_PIN);
 
-    digitalWrite(BOARD_POWERON_PIN, LOW); // Desactive l'alim du module
-
-    // Configurez l'ESP32 pour se réveiller après un certain temps et sur interruption
+    digitalWrite(BOARD_POWERON_PIN, LOW);
     esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)RAINFALL_PIN, 0); // Wake up on rain gauge tip
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_32, 0);
 
     Serial.println("Going to sleep now");
     delay(1000);
