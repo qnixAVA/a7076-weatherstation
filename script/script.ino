@@ -50,8 +50,10 @@ void setup() {
         //wakeUp();
     }
 
-    // Initialize the weather meter kit
+    // Init des calibration params
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
+
+    // Calibration orientation vent
     calibrationParams.vaneADCValues[WMK_ANGLE_0_0] = 3143;
     calibrationParams.vaneADCValues[WMK_ANGLE_22_5] = 1624;
     calibrationParams.vaneADCValues[WMK_ANGLE_45_0] = 1845;
@@ -68,13 +70,19 @@ void setup() {
     calibrationParams.vaneADCValues[WMK_ANGLE_292_5] = 3309;
     calibrationParams.vaneADCValues[WMK_ANGLE_315_0] = 3548;
     calibrationParams.vaneADCValues[WMK_ANGLE_337_5] = 2810;
-    calibrationParams.mmPerRainfallCount = 0.2794;
-    calibrationParams.minMillisPerRainfall = 100;
+
+    calibrationParams.mmPerRainfallCount = 0.2794; // Taille godet
+    calibrationParams.minMillisPerRainfall = 2000; // Deux seconde de debouce
+
     calibrationParams.kphPerCountPerSec = 2.4;
     calibrationParams.windSpeedMeasurementPeriodMillis = 1000;
+
+    // On upload les params de calibration
     weatherMeterKit.setCalibrationParams(calibrationParams);
     weatherMeterKit.begin();
 
+
+    //FIXME sert pour la batterie ?
     // Set ADC resolution
     analogReadResolution(12);
 
@@ -223,15 +231,15 @@ void loop() {
     float windDirection = weatherMeterKit.getWindDirection();
     float windSpeed = weatherMeterKit.getWindSpeed();
     float totalRainfall = weatherMeterKit.getTotalRainfall();
-    
+
 
     // Préparer le corps de la requête POST
     String post_body = "{\"temperature\":" + String(temperature, 2) +
                        ", \"battery_voltage\":" + String(batteryVoltage / 1000.0, 2) +
-                       ", \"solar_voltage\":" + String(solarVoltage / 1000.0, 2) +
-                       ", \"wind_direction\":" + String(windDirection, 2) +
-                       ", \"wind_speed\":" + String(windSpeed, 2) +
-                       ", \"total_rainfall\":" + String(totalRainfall, 2) + "}";
+                       ", \"solar_charging_voltage\":" + String(solarVoltage / 1000.0, 2) +
+                       ", \"wind_heading\":" + String(windDirection, 3) +
+                       ", \"wind_speed\":" + String(windSpeed, 3) +
+                       ", \"total_rainfall\":" + String(totalRainfall, 3) + "}";
 
     Serial.println(post_body);
 
@@ -268,7 +276,7 @@ void goToSleep() {
     gpio_hold_en((gpio_num_t)MODEM_RESET_PIN);
 #endif
 */
-    digitalWrite(BOARD_POWERON_PIN, LOW);// Desactive l'alim du module 
+    digitalWrite(BOARD_POWERON_PIN, LOW);// Desactive l'alim du module
     // Configurez l'ESP32 pour se réveiller après un certain temps
     esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
 
@@ -277,6 +285,7 @@ void goToSleep() {
     esp_deep_sleep_start();
 }
 
+//FIXME sert plus a rien pour le moment
 // Fonction pour initialiser le réveil du modem et de l'ESP32
 void wakeUp() {
     Serial.println("Waking up");
