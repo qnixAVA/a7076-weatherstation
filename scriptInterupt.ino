@@ -10,9 +10,11 @@
 #include <TinyGsmClient.h>
 #include <Ticker.h>
 
-#define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP 300          /* Time ESP32 will go to sleep (in seconds) */
+#define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */ // Ne pas toucher
 
+#define TIME_TO_SLEEP 160   /* Time ESP32 will go to sleep (in seconds) */ // Temps de mise en veille en seconde -> 3 minutes
+
+// Debug features
 #ifdef DUMP_AT_COMMANDS
 #include <StreamDebugger.h>
 StreamDebugger debugger(SerialAT, Serial);
@@ -21,6 +23,7 @@ TinyGsm modem(debugger);
 TinyGsm modem(SerialAT);
 #endif
 
+// Addr api
 const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station_webhook";
 
 // Pin definitions
@@ -31,7 +34,7 @@ const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station
 #define WIND_SPEED_PIN 14
 #define RAINFALL_PIN 32
 
-volatile uint16_t rainCount = 0; // Variable to count rain bucket tips
+RTC_DATA_ATTR int rainCount = 0; // Variable to count rain bucket tips
 Ticker debounceTimer;
 
 OneWire oneWire(ONE_WIRE_BUS);
@@ -39,27 +42,30 @@ DallasTemperature sensors(&oneWire);
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
 
 void IRAM_ATTR rainISR() {
-    debounceTimer.detach(); // Detach any existing timer
-    debounceTimer.attach_ms(10, []() {
-        if (digitalRead(RAINFALL_PIN) == LOW) {
-            rainCount++;
-        }
+    detachInterrupt(digitalPinToInterrupt(RAINFALL_PIN));
+
+    debounceTimer.attach_ms(1000, []() {
+            attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
     });
+
 }
 
 void setup() {
     Serial.begin(115200);
     Serial.println(F("Setup ..."));
 
-    if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
-        Serial.println("Normal startup");
-    } else {
-        Serial.println("Wake up from deep sleep");
+    // Interruption pour le reveil en cas de bbasculement
+    pinMode(RAINFALL_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
+
+    // Dans le cas d'un reveil par interruption ext2 soit basculement on compte un
+    if(esp_sleep_get_wakeup_cause() == 2) //Case wakeup EXT1 interuption
+    {
+      rainCount++;
     }
 
-    // Init des calibration params
+    // Calibration
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
-
     calibrationParams.vaneADCValues[WMK_ANGLE_0_0] = 3143;
     calibrationParams.vaneADCValues[WMK_ANGLE_22_5] = 1624;
     calibrationParams.vaneADCValues[WMK_ANGLE_45_0] = 1845;
@@ -76,22 +82,20 @@ void setup() {
     calibrationParams.vaneADCValues[WMK_ANGLE_292_5] = 3309;
     calibrationParams.vaneADCValues[WMK_ANGLE_315_0] = 3548;
     calibrationParams.vaneADCValues[WMK_ANGLE_337_5] = 2810;
-
     calibrationParams.mmPerRainfallCount = 0.2794; // Taille godet // FIXME sert plus a rien du coup
     calibrationParams.minMillisPerRainfall = 2000; // Deux seconde de debouce
-
     calibrationParams.kphPerCountPerSec = 2.4;
     calibrationParams.windSpeedMeasurementPeriodMillis = 1000;
 
     weatherMeterKit.setCalibrationParams(calibrationParams);
-    weatherMeterKit.begin();
+    // Fin calibration
 
-    pinMode(RAINFALL_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
+    weatherMeterKit.begin();
 
     analogReadResolution(12);
     sensors.begin();
 
+    // Alimentation carte réseau
     SerialAT.begin(115200, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
     pinMode(BOARD_POWERON_PIN, OUTPUT);
     digitalWrite(BOARD_POWERON_PIN, HIGH);
@@ -108,6 +112,7 @@ void setup() {
     delay(100);
     digitalWrite(BOARD_PWRKEY_PIN, LOW);
 
+    // Séquence allumage carte réseau
     int retry = 0;
     while (!modem.testAT(1000)) {
         Serial.println(".");
@@ -120,7 +125,6 @@ void setup() {
             retry = 0;
         }
     }
-    Serial.println();
 
     SimStatus sim = SIM_ERROR;
     while (sim != SIM_READY) {
@@ -135,7 +139,7 @@ void setup() {
         default:
             break;
         }
-        delay(1000);
+        delay(600);
     }
 
 #ifndef TINY_GSM_MODEM_SIM7672
@@ -157,7 +161,7 @@ void setup() {
         case REG_SEARCHING:
             sq = modem.getSignalQuality();
             Serial.printf("[%lu] Signal Quality:%d", millis() / 1000, sq);
-            delay(1000);
+            delay(600);
             break;
         case REG_DENIED:
             Serial.println("Network registration was rejected, please check if the APN is correct");
@@ -170,14 +174,14 @@ void setup() {
             break;
         default:
             Serial.printf("Registration Status:%d\n", status);
-            delay(1000);
+            delay(600);
             break;
         }
     }
     Serial.println();
 
     Serial.printf("Registration Status:%d\n", status);
-    delay(1000);
+    delay(500);
 
     String ueInfo;
     if (modem.getSystemInformation(ueInfo)) {
@@ -189,10 +193,10 @@ void setup() {
         Serial.println("Enable network failed!");
     }
 
-    delay(2000);
+    delay(1000);
 
-    String ipAddress = modem.getLocalIP();
-    Serial.print("Network IP:"); Serial.println(ipAddress);
+    //String ipAddress = modem.getLocalIP();
+    //Serial.print("Network IP:"); Serial.println(ipAddress);
 
     modem.https_begin();
 
@@ -201,6 +205,7 @@ void setup() {
         return;
     }
 
+    // Oon pourrait enlever le chinois du header
     modem.https_add_header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6");
     modem.https_add_header("Accept-Encoding", "gzip, deflate, br");
     modem.https_add_header("Content-Type", "application/json");
@@ -209,6 +214,8 @@ void setup() {
 }
 
 void loop() {
+
+    // Lectures des sensors
     sensors.requestTemperatures();
     float temperature = sensors.getTempCByIndex(0);
 
@@ -222,11 +229,18 @@ void loop() {
     uint32_t solarVoltage = esp_adc_cal_raw_to_voltage(solarADC, &adc_chars) * 2;
 
     float windDirection = weatherMeterKit.getWindDirection();
+
+    //Moyenne : Vitesse vent -> 5 secondes -> vitesse vent
     float windSpeed = weatherMeterKit.getWindSpeed();
+    sleep(5000);
+    float windSpeedTheSecond = weatherMeterKit.getWindSpeed();
+    windSpeed = (windSpeed + windSpeedTheSecond) / 2;
+
+    //Serial.println("Rain count");
+    //Serial.println(rainCount);
     float totalRainfall = rainCount * 0.2794;
 
     rainCount = 0;
-
     String post_body = "{\"temperature\":" + String(temperature, 2) +
                        ", \"battery_voltage\":" + String(batteryVoltage / 1000.0, 2) +
                        ", \"solar_charging_voltage\":" + String(solarVoltage / 1000.0, 2) +
