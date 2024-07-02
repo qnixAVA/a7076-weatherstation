@@ -195,8 +195,8 @@ void setup() {
 
     delay(1000);
 
-    //String ipAddress = modem.getLocalIP();
-    //Serial.print("Network IP:"); Serial.println(ipAddress);
+    String ipAddress = modem.getLocalIP();
+    Serial.print("Network IP:"); Serial.println(ipAddress);
 
     modem.https_begin();
 
