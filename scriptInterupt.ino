@@ -232,7 +232,7 @@ void loop() {
 
     //Moyenne : Vitesse vent -> 5 secondes -> vitesse vent
     float windSpeed = weatherMeterKit.getWindSpeed();
-    sleep(5000);
+    delay(5000);
     float windSpeedTheSecond = weatherMeterKit.getWindSpeed();
     windSpeed = (windSpeed + windSpeedTheSecond) / 2;
 
