@@ -34,7 +34,7 @@ const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station
 #define WIND_SPEED_PIN 14
 #define RAINFALL_PIN 32
 
-RTC_DATA_ATTR int rainCount = 0; // Variable to count rain bucket tips
+volatile RTC_DATA_ATTR int rainCount = 0; // Variable to count rain bucket tips
 Ticker debounceTimer;
 
 OneWire oneWire(ONE_WIRE_BUS);
@@ -42,12 +42,12 @@ DallasTemperature sensors(&oneWire);
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
 
 void IRAM_ATTR rainISR() {
+    rainCount++;
     detachInterrupt(digitalPinToInterrupt(RAINFALL_PIN));
 
     debounceTimer.attach_ms(1000, []() {
-            attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
+        attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
     });
-
 }
 
 void setup() {
@@ -55,13 +55,14 @@ void setup() {
     Serial.println(F("Setup ..."));
 
     // Interruption pour le reveil en cas de bbasculement
-    pinMode(RAINFALL_PIN, INPUT_PULLUP);
+ pinMode(RAINFALL_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
-    // Dans le cas d'un reveil par interruption ext2 soit basculement on compte un
-    if(esp_sleep_get_wakeup_cause() == 2) //Case wakeup EXT1 interuption
-    {
-      rainCount++;
+    // Check if wake-up was caused by external interrupt (rain gauge)
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
+        rainCount++;
     }
 
     // Calibration
