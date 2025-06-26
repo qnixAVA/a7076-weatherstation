@@ -4,18 +4,14 @@
 #include "SparkFun_Weather_Meter_Kit_Arduino_Library.h"
 #include <esp_adc_cal.h>
 #include <Arduino.h>
-#include <DHT.h>
-#define DHTPIN 15        // Broche DATA du capteur DHT
-#define DHTTYPE DHT22    // AM2308 est compatible DHT22
 #include "utilities.h"
 #include <TinyGsmClient.h>
 #include <Ticker.h>
+#include <DHT.h>
 
-#define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */ // Ne pas toucher
+#define uS_TO_S_FACTOR 1000000ULL
+#define TIME_TO_SLEEP 160
 
-#define TIME_TO_SLEEP 160   /* Time ESP32 will go to sleep (in seconds) */ // Temps de mise en veille en seconde -> 3 minutes
-
-// Debug features
 #ifdef DUMP_AT_COMMANDS
 #include <StreamDebugger.h>
 StreamDebugger debugger(SerialAT, Serial);
@@ -24,50 +20,43 @@ TinyGsm modem(debugger);
 TinyGsm modem(SerialAT);
 #endif
 
-// Addr api
 const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station_webhook";
 
-// Pin definitions
-#define BATTERY_PIN 35  // ADC pin for battery
-#define SOLAR_PIN 34    // ADC pin for solar panel
-#define ONE_WIRE_BUS 15
+#define BATTERY_PIN 35
+#define SOLAR_PIN 34
 #define WIND_DIRECTION_PIN 36
 #define WIND_SPEED_PIN 14
 #define RAINFALL_PIN 32
+#define DHTPIN 15
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
 
-RTC_DATA_ATTR int rainCount = 0; // Variable to count rain bucket tips
-RTC_DATA_ATTR int cumulativeRainCount = 0; // Persistent cumulative rain bucket count
+RTC_DATA_ATTR int rainCount = 0;
+RTC_DATA_ATTR int cumulativeRainCount = 0;
 
 Ticker debounceTimer;
 
-DHT dht(DHTPIN, DHTTYPE);
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
 
 void IRAM_ATTR rainISR() {
     detachInterrupt(digitalPinToInterrupt(RAINFALL_PIN));
-
     debounceTimer.attach_ms(1000, []() {
-            attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
+        attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
     });
-
 }
 
 void setup() {
     Serial.begin(115200);
     Serial.println(F("Setup ..."));
 
-    // Interruption pour le reveil en cas de bbasculement
     pinMode(RAINFALL_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
-    // Dans le cas d'un reveil par interruption ext2 soit basculement on compte un
-    if(esp_sleep_get_wakeup_cause() ==  ESP_SLEEP_WAKEUP_EXT0) //Case wakeup EXT1 interuption
-    {
-      rainCount++;
-      cumulativeRainCount++;
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+        rainCount++;
+        cumulativeRainCount++;
     }
 
-    // Calibration
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
     calibrationParams.vaneADCValues[WMK_ANGLE_0_0] = 3143;
     calibrationParams.vaneADCValues[WMK_ANGLE_22_5] = 1624;
@@ -85,20 +74,16 @@ void setup() {
     calibrationParams.vaneADCValues[WMK_ANGLE_292_5] = 3309;
     calibrationParams.vaneADCValues[WMK_ANGLE_315_0] = 3548;
     calibrationParams.vaneADCValues[WMK_ANGLE_337_5] = 2810;
-    calibrationParams.mmPerRainfallCount = 0.2794; // Taille godet // FIXME sert plus a rien du coup
-    calibrationParams.minMillisPerRainfall = 2000; // Deux seconde de debouce
+    calibrationParams.mmPerRainfallCount = 0.2794;
+    calibrationParams.minMillisPerRainfall = 2000;
     calibrationParams.kphPerCountPerSec = 2;
     calibrationParams.windSpeedMeasurementPeriodMillis = 1000;
 
     weatherMeterKit.setCalibrationParams(calibrationParams);
-    // Fin calibration
-
     weatherMeterKit.begin();
 
     analogReadResolution(12);
-    dht.begin();
 
-    // Alimentation carte réseau
     SerialAT.begin(115200, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
     pinMode(BOARD_POWERON_PIN, OUTPUT);
     digitalWrite(BOARD_POWERON_PIN, HIGH);
@@ -115,7 +100,6 @@ void setup() {
     delay(100);
     digitalWrite(BOARD_PWRKEY_PIN, LOW);
 
-    // Séquence allumage carte réseau
     int retry = 0;
     while (!modem.testAT(1000)) {
         Serial.println(".");
@@ -208,23 +192,25 @@ void setup() {
         return;
     }
 
-    // Oon pourrait enlever le chinois du header
     modem.https_add_header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6");
     modem.https_add_header("Accept-Encoding", "gzip, deflate, br");
     modem.https_add_header("Content-Type", "application/json");
     modem.https_set_accept_type("application/json");
     modem.https_set_user_agent("TinyGSM/LilyGo-A76XX");
+
+    dht.begin();
 }
 
 void loop() {
 
-    // Lectures des sensors
+      // Lecture du capteur DHT22
     float temperature = dht.readTemperature();
     float humidity = dht.readHumidity();
 
+
     esp_adc_cal_characteristics_t adc_chars;
     esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
-
+   
     uint16_t batteryADC = analogRead(BATTERY_PIN);
     uint32_t batteryVoltage = esp_adc_cal_raw_to_voltage(batteryADC, &adc_chars) * 2;
 
@@ -232,19 +218,15 @@ void loop() {
     uint32_t solarVoltage = esp_adc_cal_raw_to_voltage(solarADC, &adc_chars) * 2;
 
     float windDirection = weatherMeterKit.getWindDirection();
-
-    //Moyenne : Vitesse vent -> 5 secondes -> vitesse vent
     float windSpeed = weatherMeterKit.getWindSpeed();
     delay(5000);
     float windSpeedTheSecond = weatherMeterKit.getWindSpeed();
     windSpeed = (windSpeed + windSpeedTheSecond) / 2;
 
-    //Serial.println("Rain count");
-    //Serial.println(rainCount);
     float totalRainfall = rainCount * 0.2794;
 
     rainCount = 0;
-    String post_body = "{\"temperature\":" + String(temperature, 2) +
+   String post_body = "{\"temperature\":" + String(temperature, 2) +
                    ", \"humidity\":" + String(humidity, 2) +
                    ", \"battery_voltage\":" + String(batteryVoltage / 1000.0, 2) +
                    ", \"solar_charging_voltage\":" + String(solarVoltage / 1000.0, 2) +
