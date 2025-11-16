@@ -49,6 +49,12 @@ void setup() {
     Serial.begin(115200);
     Serial.println(F("Setup ..."));
 
+    // --------------------------
+    // 🔥 OBLIGATOIRE POUR LA BATTERIE
+    pinMode(12, OUTPUT);
+    digitalWrite(12, HIGH);
+    delay(100);
+    
     pinMode(RAINFALL_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
