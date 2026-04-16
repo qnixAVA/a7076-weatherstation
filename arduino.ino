@@ -20,7 +20,7 @@ TinyGsm modem(debugger);
 TinyGsm modem(SerialAT);
 #endif
 
-const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station_webhook";
+const char *server_url = "https://rn134ha.duckdns.org/api/webhook/weather_station_webhook";
 
 #define BATTERY_PIN 35
 #define SOLAR_PIN 34
@@ -192,6 +192,10 @@ void setup() {
     Serial.print("Network IP:"); Serial.println(ipAddress);
 
     modem.https_begin();
+
+    // Desactiver verification SSL pour HTTPS (necessaire avec DuckDNS)
+    modem.sendAT(GF("+CSSLCFG=\"ignorlocaltime\",0,1"));
+    modem.waitResponse();
 
     if (!modem.https_set_url(server_url)) {
         Serial.println("Failed to set the URL. Please check the validity of the URL!");
