@@ -1,5 +1,6 @@
-#define TINY_GSM_RX_BUFFER 1024 // Set RX buffer to 1Kb
+#define TINY_GSM_RX_BUFFER 1024
 #define TINY_GSM_DEBUG Serial
+#define DUMP_AT_COMMANDS
 
 #include "SparkFun_Weather_Meter_Kit_Arduino_Library.h"
 #include <esp_adc_cal.h>
@@ -45,16 +46,79 @@ void IRAM_ATTR rainISR() {
     });
 }
 
+int sendHttpPost(const char *url, const String &body) {
+    // Terminer toute session HTTP précédente
+    modem.sendAT(GF("+HTTPTERM"));
+    modem.waitResponse(1000L);
+
+    // Initialiser la session HTTP
+    modem.sendAT(GF("+HTTPINIT"));
+    if (modem.waitResponse(5000L) != 1) {
+        Serial.println("HTTPINIT failed");
+        return -1;
+    }
+
+    // Définir l'URL
+    modem.sendAT(GF("+HTTPPARA=\"URL\",\""), url, GF("\""));
+    if (modem.waitResponse(5000L) != 1) {
+        Serial.println("HTTPPARA URL failed");
+        return -2;
+    }
+
+    // Définir le Content-Type (OBLIGATOIRE pour HA webhook)
+    modem.sendAT(GF("+HTTPPARA=\"CONTENT\",\"application/json\""));
+    if (modem.waitResponse(5000L) != 1) {
+        Serial.println("HTTPPARA CONTENT failed");
+        return -3;
+    }
+
+    // Envoyer les données du body
+    modem.sendAT(GF("+HTTPDATA="), body.length(), GF(",10000"));
+    if (modem.waitResponse(10000L, GF("DOWNLOAD")) != 1) {
+        Serial.println("HTTPDATA not ready");
+        return -4;
+    }
+
+    // Écrire le body
+    modem.stream.print(body);
+    modem.stream.flush();
+    if (modem.waitResponse(10000L) != 1) {
+        Serial.println("HTTPDATA body failed");
+        return -5;
+    }
+
+    // Déclencher le POST (action = 1)
+    modem.sendAT(GF("+HTTPACTION=1"));
+    if (modem.waitResponse(5000L) != 1) {
+        Serial.println("HTTPACTION failed");
+        return -6;
+    }
+
+    // Attendre la réponse +HTTPACTION: 1,<status>,<length>
+    int httpCode = -1;
+    if (modem.waitResponse(30000L, GF("+HTTPACTION:")) == 1) {
+        modem.stream.parseInt();      // method
+        httpCode = modem.stream.parseInt();  // status code
+        int len = modem.stream.parseInt();   // content length
+        Serial.print("HTTP code: "); Serial.print(httpCode);
+        Serial.print(" / length: "); Serial.println(len);
+    }
+
+    // Terminer la session
+    modem.sendAT(GF("+HTTPTERM"));
+    modem.waitResponse(1000L);
+
+    return httpCode;
+}
+
 void setup() {
     Serial.begin(115200);
     Serial.println(F("Setup ..."));
 
-    // --------------------------
-    // 🔥 OBLIGATOIRE POUR LA BATTERIE
     pinMode(12, OUTPUT);
     digitalWrite(12, HIGH);
     delay(100);
-    
+
     pinMode(RAINFALL_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
@@ -191,36 +255,16 @@ void setup() {
     String ipAddress = modem.getLocalIP();
     Serial.print("Network IP:"); Serial.println(ipAddress);
 
-    modem.https_begin();
-
-    // Desactiver verification SSL pour HTTPS (necessaire avec DuckDNS)
-    modem.sendAT(GF("+CSSLCFG=\"ignorlocaltime\",0,1"));
-    modem.waitResponse();
-
-    if (!modem.https_set_url(server_url)) {
-        Serial.println("Failed to set the URL. Please check the validity of the URL!");
-        return;
-    }
-
-    modem.https_add_header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6");
-    modem.https_add_header("Accept-Encoding", "gzip, deflate, br");
-    // Content-Type déjà ajouté automatiquement par https_post() - supprimé pour éviter duplicate header (HA 2026.4+)
-    modem.https_set_accept_type("application/json");
-    modem.https_set_user_agent("TinyGSM/LilyGo-A76XX");
-
     dht.begin();
 }
 
 void loop() {
-
-      // Lecture du capteur DHT22
     float temperature = dht.readTemperature();
     float humidity = dht.readHumidity();
 
-
     esp_adc_cal_characteristics_t adc_chars;
     esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
-   
+
     uint16_t batteryADC = analogRead(BATTERY_PIN);
     uint32_t batteryVoltage = esp_adc_cal_raw_to_voltage(batteryADC, &adc_chars) * 2;
 
@@ -236,7 +280,7 @@ void loop() {
     float totalRainfall = rainCount * 0.2794;
 
     rainCount = 0;
-   String post_body = "{\"temperature\":" + String(temperature, 2) +
+    String post_body = "{\"temperature\":" + String(temperature, 2) +
                    ", \"humidity\":" + String(humidity, 2) +
                    ", \"battery_voltage\":" + String(batteryVoltage / 1000.0, 2) +
                    ", \"solar_charging_voltage\":" + String(solarVoltage / 1000.0, 2) +
@@ -247,7 +291,7 @@ void loop() {
 
     Serial.println(post_body);
 
-    int httpCode = modem.https_post(post_body);
+    int httpCode = sendHttpPost(server_url, post_body);
     if (httpCode != 200) {
         Serial.print("HTTP POST request failed! Error code = ");
         Serial.println(httpCode);
