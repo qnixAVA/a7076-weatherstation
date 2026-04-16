@@ -20,7 +20,7 @@ TinyGsm modem(debugger);
 TinyGsm modem(SerialAT);
 #endif
 
-const char *server_url = "https://rn134ha.duckdns.org/api/webhook/weather_station_webhook";
+const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station_webhook";
 
 #define BATTERY_PIN 35
 #define SOLAR_PIN 34
