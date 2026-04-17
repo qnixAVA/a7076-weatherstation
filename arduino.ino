@@ -12,6 +12,7 @@
 
 #define uS_TO_S_FACTOR 1000000ULL
 #define TIME_TO_SLEEP 160
+#define RAIN_AWAKE_MS 600000  // 10 minutes en mode "pluie"
 
 #ifdef DUMP_AT_COMMANDS
 #include <StreamDebugger.h>
@@ -34,12 +35,16 @@ DHT dht(DHTPIN, DHTTYPE);
 
 RTC_DATA_ATTR int rainCount = 0;
 RTC_DATA_ATTR int cumulativeRainCount = 0;
+RTC_DATA_ATTR int lastSentRainCount = 0;
+RTC_DATA_ATTR bool wokeFromRain = false;
 
 Ticker debounceTimer;
 
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
 
 void IRAM_ATTR rainISR() {
+    rainCount++;
+    cumulativeRainCount++;
     detachInterrupt(digitalPinToInterrupt(RAINFALL_PIN));
     debounceTimer.attach_ms(1000, []() {
         attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
@@ -125,6 +130,7 @@ void setup() {
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
         rainCount++;
         cumulativeRainCount++;
+        wokeFromRain = true;
     }
 
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
@@ -151,6 +157,9 @@ void setup() {
 
     weatherMeterKit.setCalibrationParams(calibrationParams);
     weatherMeterKit.begin();
+
+    // Ecraser l'ISR de la librairie SparkFun par notre ISR custom (RTC persistant)
+    attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
     analogReadResolution(12);
 
@@ -258,7 +267,7 @@ void setup() {
     dht.begin();
 }
 
-void loop() {
+void readAndSendData() {
     float temperature = dht.readTemperature();
     float humidity = dht.readHumidity();
 
@@ -277,9 +286,8 @@ void loop() {
     float windSpeedTheSecond = weatherMeterKit.getWindSpeed();
     windSpeed = (windSpeed + windSpeedTheSecond) / 2;
 
-    float totalRainfall = rainCount * 0.2794;
+    float totalRainfall = (rainCount - lastSentRainCount) * 0.2794;
 
-    rainCount = 0;
     String post_body = "{\"temperature\":" + String(temperature, 2) +
                    ", \"humidity\":" + String(humidity, 2) +
                    ", \"battery_voltage\":" + String(batteryVoltage / 1000.0, 2) +
@@ -297,6 +305,29 @@ void loop() {
         Serial.println(httpCode);
     } else {
         Serial.println("Data sent successfully!");
+    }
+
+    lastSentRainCount = rainCount;
+}
+
+void loop() {
+    readAndSendData();
+
+    if (wokeFromRain) {
+        Serial.println("Mode pluie actif - reste eveille 10 min");
+        unsigned long rainStart = millis();
+
+        while (millis() - rainStart < RAIN_AWAKE_MS) {
+            if (rainCount > lastSentRainCount) {
+                delay(5000);
+                readAndSendData();
+                rainStart = millis();
+            }
+            delay(100);
+        }
+
+        Serial.println("Fin du mode pluie, pas de nouvelle bascule depuis 10 min");
+        wokeFromRain = false;
     }
 
     goToSleep();
