@@ -398,9 +398,9 @@ void loop() {
 void goToSleep() {
     Serial.println("Preparing to sleep");
 
-    // Eteindre le modem proprement
-    modem.sendAT(GF("+CPOF"));
-    modem.waitResponse(3000L);
+    // Terminer la session HTTP si active
+    modem.sendAT(GF("+HTTPTERM"));
+    modem.waitResponse(1000L);
 
     pinMode(MODEM_DTR_PIN, OUTPUT);
     digitalWrite(MODEM_DTR_PIN, HIGH);
