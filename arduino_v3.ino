@@ -57,12 +57,27 @@ void IRAM_ATTR rainISR() {
 
 // === ENVOI HTTP VIA COMMANDES AT BRUTES ===
 int sendHttpPost(const char *url, const String &body) {
+    // Forcer la fermeture de toute session HTTP precedente
     modem.sendAT(GF("+HTTPTERM"));
     modem.waitResponse(1000L);
+    delay(500);
 
-    modem.sendAT(GF("+HTTPINIT"));
-    if (modem.waitResponse(5000L) != 1) {
-        Serial.println("HTTPINIT failed");
+    // HTTPINIT avec retry (3 tentatives)
+    bool initOk = false;
+    for (int i = 0; i < 3; i++) {
+        modem.sendAT(GF("+HTTPINIT"));
+        if (modem.waitResponse(5000L) == 1) {
+            initOk = true;
+            break;
+        }
+        Serial.print("HTTPINIT retry ");
+        Serial.println(i + 1);
+        modem.sendAT(GF("+HTTPTERM"));
+        modem.waitResponse(1000L);
+        delay(2000);
+    }
+    if (!initOk) {
+        Serial.println("HTTPINIT failed apres 3 essais");
         return -1;
     }
 
