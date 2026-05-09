@@ -7,6 +7,7 @@
 #include <Arduino.h>
 #include "utilities.h"
 #include <TinyGsmClient.h>
+#include <Ticker.h>
 #include <DHT.h>
 
 // === CONFIGURATION ===
@@ -37,30 +38,28 @@ const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station
 DHT dht(DHTPIN, DHTTYPE);
 
 // Variables RTC (persistent apres deep sleep)
-RTC_DATA_ATTR volatile int rainCount = 0;
-RTC_DATA_ATTR volatile int cumulativeRainCount = 0;
+RTC_DATA_ATTR int rainCount = 0;
+RTC_DATA_ATTR int cumulativeRainCount = 0;
 RTC_DATA_ATTR int lastSentRainCount = 0;
 RTC_DATA_ATTR bool wokeFromRain = false;
-RTC_DATA_ATTR volatile uint64_t lastRainInterrupt = 0;
 
+Ticker debounceTimer;
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
 
 // === ISR POUR PLUVIOMETRE ===
 void IRAM_ATTR rainISR() {
-    uint64_t now = esp_timer_get_time();
-    if (now - lastRainInterrupt > 1000000) {  // 1s debounce
-        rainCount++;
-        cumulativeRainCount++;
-        lastRainInterrupt = now;
-    }
+    rainCount++;
+    cumulativeRainCount++;
+    detachInterrupt(digitalPinToInterrupt(RAINFALL_PIN));
+    debounceTimer.attach_ms(1000, []() {
+        attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
+    });
 }
 
 // === ENVOI HTTP VIA COMMANDES AT BRUTES ===
 int sendHttpPost(const char *url, const String &body) {
-    // Forcer la fermeture de toute session HTTP precedente
     modem.sendAT(GF("+HTTPTERM"));
     modem.waitResponse(1000L);
-    delay(500);
 
     // HTTPINIT avec retry (3 tentatives)
     bool initOk = false;
@@ -132,29 +131,25 @@ void setup() {
     Serial.begin(115200);
     Serial.println(F("Setup ..."));
 
-    // Liberer le GPIO hold du cycle precedent
-    gpio_hold_dis((gpio_num_t)MODEM_DTR_PIN);
-
     // Activation pin 12 pour lecture batterie
     pinMode(12, OUTPUT);
     digitalWrite(12, HIGH);
     delay(100);
 
     // 1. Verification de la cause du reveil AVANT d'attacher l'ISR
-    // Cela evite les conflits si le reed switch rebondit au boot
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
         Serial.println("Reveil par pluie detecte");
         rainCount++;
         cumulativeRainCount++;
         wokeFromRain = true;
-        lastRainInterrupt = esp_timer_get_time();  // Activer le debounce immediatement
     }
 
-    // 2. Attendre que le reed switch se stabilise avant d'attacher l'ISR
+    // 2. Attendre que le reed switch se stabilise
     delay(500);
 
-    // 3. Configurer le pin pluie (ISR attachee APRES weatherMeterKit.begin())
+    // 3. Configurer le pin pluie et attacher l'ISR
     pinMode(RAINFALL_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
     // Calibration girouette SparkFun (valeurs ADC pour ESP32)
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
@@ -183,9 +178,6 @@ void setup() {
     weatherMeterKit.begin();
 
     // Ecraser l'ISR de la librairie SparkFun par notre ISR custom
-    // Stabiliser le pin avant d'attacher pour eviter un declenchement parasite
-    delay(100);
-    digitalRead(RAINFALL_PIN);  // Vider tout etat pendand
     attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
     analogReadResolution(12);
@@ -336,7 +328,6 @@ void readAndSendData() {
     float batteryV = batteryVoltage / 1000.0;
 
     // === PROTECTION BATTERIE ===
-    // Si la batterie est trop faible, on n'envoie pas et on retourne dormir
     if (batteryV < BATTERY_CRITICAL_V) {
         Serial.print("BATTERIE CRITIQUE : ");
         Serial.print(batteryV, 2);
@@ -399,8 +390,6 @@ void loop() {
                 delay(5000);
                 readAndSendData();
                 extensions++;
-                // On NE remet PAS rainStart a zero !
-                // Le timer continue de compter les 6 minutes depuis le debut.
             }
             delay(100);
         }
