@@ -7,7 +7,6 @@
 #include <Arduino.h>
 #include "utilities.h"
 #include <TinyGsmClient.h>
-#include <Ticker.h>
 #include <DHT.h>
 
 // === CONFIGURATION ===
@@ -38,22 +37,22 @@ const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station
 DHT dht(DHTPIN, DHTTYPE);
 
 // Variables RTC (persistent apres deep sleep)
-RTC_DATA_ATTR int rainCount = 0;
-RTC_DATA_ATTR int cumulativeRainCount = 0;
+RTC_DATA_ATTR volatile int rainCount = 0;
+RTC_DATA_ATTR volatile int cumulativeRainCount = 0;
 RTC_DATA_ATTR int lastSentRainCount = 0;
 RTC_DATA_ATTR bool wokeFromRain = false;
+RTC_DATA_ATTR volatile uint64_t lastRainInterrupt = 0;
 
-Ticker debounceTimer;
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
 
 // === ISR POUR PLUVIOMETRE ===
 void IRAM_ATTR rainISR() {
-    rainCount++;
-    cumulativeRainCount++;
-    detachInterrupt(digitalPinToInterrupt(RAINFALL_PIN));
-    debounceTimer.attach_ms(1000, []() {
-        attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
-    });
+    uint64_t now = esp_timer_get_time();
+    if (now - lastRainInterrupt > 1000000) {  // 1s debounce
+        rainCount++;
+        cumulativeRainCount++;
+        lastRainInterrupt = now;
+    }
 }
 
 // === ENVOI HTTP VIA COMMANDES AT BRUTES ===
@@ -118,6 +117,9 @@ void setup() {
     Serial.begin(115200);
     Serial.println(F("Setup ..."));
 
+    // Liberer le GPIO hold du cycle precedent
+    gpio_hold_dis((gpio_num_t)MODEM_DTR_PIN);
+
     // Activation pin 12 pour lecture batterie
     pinMode(12, OUTPUT);
     digitalWrite(12, HIGH);
@@ -130,14 +132,14 @@ void setup() {
         rainCount++;
         cumulativeRainCount++;
         wokeFromRain = true;
+        lastRainInterrupt = esp_timer_get_time();  // Activer le debounce immediatement
     }
 
     // 2. Attendre que le reed switch se stabilise avant d'attacher l'ISR
     delay(500);
 
-    // 3. Configurer le pin pluie et attacher l'ISR
+    // 3. Configurer le pin pluie (ISR attachee APRES weatherMeterKit.begin())
     pinMode(RAINFALL_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
     // Calibration girouette SparkFun (valeurs ADC pour ESP32)
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
@@ -201,9 +203,14 @@ void setup() {
         }
     }
 
-    // Attente SIM
+    // Attente SIM (timeout 15s)
+    unsigned long simStart = millis();
     SimStatus sim = SIM_ERROR;
     while (sim != SIM_READY) {
+        if (millis() - simStart > 15000) {
+            Serial.println("SIM timeout 15s - retour sommeil");
+            goToSleep();
+        }
         sim = modem.getSimStatus();
         switch (sim) {
         case SIM_READY:
@@ -227,11 +234,16 @@ void setup() {
     Serial.println(mode);
 #endif
 
-    // Attente reseau
+    // Attente reseau (timeout 45s)
     int16_t sq;
     Serial.print("Wait for the modem to register with the network.");
+    unsigned long netStart = millis();
     RegStatus status = REG_NO_RESULT;
     while (status == REG_NO_RESULT || status == REG_SEARCHING || status == REG_UNREGISTERED) {
+        if (millis() - netStart > 45000) {
+            Serial.println("Reseau timeout 45s - retour sommeil");
+            goToSleep();
+        }
         status = modem.getRegistrationStatus();
         switch (status) {
         case REG_UNREGISTERED:
@@ -242,7 +254,7 @@ void setup() {
             break;
         case REG_DENIED:
             Serial.println("Network registration was rejected, please check if the APN is correct");
-            return;
+            goToSleep();
         case REG_OK_HOME:
             Serial.println("Online registration successful");
             break;
@@ -321,7 +333,7 @@ void readAndSendData() {
     // Lecture vent
     float windDirection = weatherMeterKit.getWindDirection();
     float windSpeed = weatherMeterKit.getWindSpeed();
-    delay(5000);
+    delay(3000);
     float windSpeedTheSecond = weatherMeterKit.getWindSpeed();
     windSpeed = (windSpeed + windSpeedTheSecond) / 2;
 
@@ -385,6 +397,10 @@ void loop() {
 // === DORMIR ===
 void goToSleep() {
     Serial.println("Preparing to sleep");
+
+    // Eteindre le modem proprement
+    modem.sendAT(GF("+CPOF"));
+    modem.waitResponse(3000L);
 
     pinMode(MODEM_DTR_PIN, OUTPUT);
     digitalWrite(MODEM_DTR_PIN, HIGH);
