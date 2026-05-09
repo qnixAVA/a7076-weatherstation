@@ -183,6 +183,9 @@ void setup() {
     weatherMeterKit.begin();
 
     // Ecraser l'ISR de la librairie SparkFun par notre ISR custom
+    // Stabiliser le pin avant d'attacher pour eviter un declenchement parasite
+    delay(100);
+    digitalRead(RAINFALL_PIN);  // Vider tout etat pendand
     attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
 
     analogReadResolution(12);
@@ -412,10 +415,6 @@ void loop() {
 // === DORMIR ===
 void goToSleep() {
     Serial.println("Preparing to sleep");
-
-    // Terminer la session HTTP si active
-    modem.sendAT(GF("+HTTPTERM"));
-    modem.waitResponse(1000L);
 
     pinMode(MODEM_DTR_PIN, OUTPUT);
     digitalWrite(MODEM_DTR_PIN, HIGH);
