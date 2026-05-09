@@ -10,13 +10,10 @@
 #include <Ticker.h>
 #include <DHT.h>
 
-// === CONFIGURATION ===
 #define uS_TO_S_FACTOR 1000000ULL
-#define TIME_TO_SLEEP 300            // 5 minutes entre envois normaux
-#define RAIN_AWAKE_MS 360000         // 6 minutes max en mode pluie (360s)
-#define RAIN_MAX_EXTENSIONS 4        // 4 envois supplementaires max en mode pluie
-#define BATTERY_CRITICAL_V 3.45      // Seuil critique : pas d'envoi si sous ce voltage
-#define BATTERY_LOW_V 3.60           // Seuil faible : intervalle allonge
+#define TIME_TO_SLEEP 160
+#define RAIN_AWAKE_MS 360000   // 6 minutes max en mode pluie
+#define RAIN_MAX_EXTENSIONS 4  // 4 envois supplementaires max en mode pluie
 
 #ifdef DUMP_AT_COMMANDS
 #include <StreamDebugger.h>
@@ -37,16 +34,15 @@ const char *server_url = "http://rn134ha.duckdns.org/api/webhook/weather_station
 #define DHTTYPE DHT22
 DHT dht(DHTPIN, DHTTYPE);
 
-// Variables RTC (persistent apres deep sleep)
 RTC_DATA_ATTR int rainCount = 0;
 RTC_DATA_ATTR int cumulativeRainCount = 0;
 RTC_DATA_ATTR int lastSentRainCount = 0;
 RTC_DATA_ATTR bool wokeFromRain = false;
 
 Ticker debounceTimer;
+
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
 
-// === ISR POUR PLUVIOMETRE ===
 void IRAM_ATTR rainISR() {
     rainCount++;
     cumulativeRainCount++;
@@ -56,48 +52,40 @@ void IRAM_ATTR rainISR() {
     });
 }
 
-// === ENVOI HTTP VIA COMMANDES AT BRUTES ===
 int sendHttpPost(const char *url, const String &body) {
+    // Terminer toute session HTTP precedente
     modem.sendAT(GF("+HTTPTERM"));
     modem.waitResponse(1000L);
 
-    // HTTPINIT avec retry (3 tentatives)
-    bool initOk = false;
-    for (int i = 0; i < 3; i++) {
-        modem.sendAT(GF("+HTTPINIT"));
-        if (modem.waitResponse(5000L) == 1) {
-            initOk = true;
-            break;
-        }
-        Serial.print("HTTPINIT retry ");
-        Serial.println(i + 1);
-        modem.sendAT(GF("+HTTPTERM"));
-        modem.waitResponse(1000L);
-        delay(2000);
-    }
-    if (!initOk) {
-        Serial.println("HTTPINIT failed apres 3 essais");
+    // Initialiser la session HTTP
+    modem.sendAT(GF("+HTTPINIT"));
+    if (modem.waitResponse(5000L) != 1) {
+        Serial.println("HTTPINIT failed");
         return -1;
     }
 
+    // Definir l'URL
     modem.sendAT(GF("+HTTPPARA=\"URL\",\""), url, GF("\""));
     if (modem.waitResponse(5000L) != 1) {
         Serial.println("HTTPPARA URL failed");
         return -2;
     }
 
+    // Definir le Content-Type
     modem.sendAT(GF("+HTTPPARA=\"CONTENT\",\"application/json\""));
     if (modem.waitResponse(5000L) != 1) {
         Serial.println("HTTPPARA CONTENT failed");
         return -3;
     }
 
+    // Envoyer les donnees du body
     modem.sendAT(GF("+HTTPDATA="), body.length(), GF(",10000"));
     if (modem.waitResponse(10000L, GF("DOWNLOAD")) != 1) {
         Serial.println("HTTPDATA not ready");
         return -4;
     }
 
+    // Ecrire le body
     modem.stream.print(body);
     modem.stream.flush();
     if (modem.waitResponse(10000L) != 1) {
@@ -105,53 +93,47 @@ int sendHttpPost(const char *url, const String &body) {
         return -5;
     }
 
+    // Declencher le POST (action = 1)
     modem.sendAT(GF("+HTTPACTION=1"));
     if (modem.waitResponse(5000L) != 1) {
         Serial.println("HTTPACTION failed");
         return -6;
     }
 
+    // Attendre la reponse +HTTPACTION: 1,<status>,<length>
     int httpCode = -1;
     if (modem.waitResponse(30000L, GF("+HTTPACTION:")) == 1) {
-        modem.stream.parseInt();
-        httpCode = modem.stream.parseInt();
-        int len = modem.stream.parseInt();
+        modem.stream.parseInt();      // method
+        httpCode = modem.stream.parseInt();  // status code
+        int len = modem.stream.parseInt();   // content length
         Serial.print("HTTP code: "); Serial.print(httpCode);
         Serial.print(" / length: "); Serial.println(len);
     }
 
+    // Terminer la session
     modem.sendAT(GF("+HTTPTERM"));
     modem.waitResponse(1000L);
 
     return httpCode;
 }
 
-// === SETUP ===
 void setup() {
     Serial.begin(115200);
     Serial.println(F("Setup ..."));
 
-    // Activation pin 12 pour lecture batterie
     pinMode(12, OUTPUT);
     digitalWrite(12, HIGH);
     delay(100);
 
-    // 1. Verification de la cause du reveil AVANT d'attacher l'ISR
+    pinMode(RAINFALL_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
+
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
-        Serial.println("Reveil par pluie detecte");
         rainCount++;
         cumulativeRainCount++;
         wokeFromRain = true;
     }
 
-    // 2. Attendre que le reed switch se stabilise
-    delay(500);
-
-    // 3. Configurer le pin pluie et attacher l'ISR
-    pinMode(RAINFALL_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
-
-    // Calibration girouette SparkFun (valeurs ADC pour ESP32)
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
     calibrationParams.vaneADCValues[WMK_ANGLE_0_0] = 3143;
     calibrationParams.vaneADCValues[WMK_ANGLE_22_5] = 1624;
@@ -182,7 +164,6 @@ void setup() {
 
     analogReadResolution(12);
 
-    // Initialisation modem
     SerialAT.begin(115200, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
     pinMode(BOARD_POWERON_PIN, OUTPUT);
     digitalWrite(BOARD_POWERON_PIN, HIGH);
@@ -199,7 +180,6 @@ void setup() {
     delay(100);
     digitalWrite(BOARD_PWRKEY_PIN, LOW);
 
-    // Test AT
     int retry = 0;
     while (!modem.testAT(1000)) {
         Serial.println(".");
@@ -298,65 +278,32 @@ void setup() {
     Serial.print("Network IP:"); Serial.println(ipAddress);
 
     dht.begin();
-    delay(2000);  // Attendre stabilisation DHT22 apres power-on
 }
 
-// === LECTURE ET ENVOI DES DONNEES ===
 void readAndSendData() {
-    // Lecture DHT22 avec retry
     float temperature = dht.readTemperature();
     float humidity = dht.readHumidity();
-
-    // Si la premiere lecture echoue (nan ou 0.0), on reessaie apres 2.5s
-    if (isnan(temperature) || isnan(humidity) || temperature == 0.0 || humidity == 0.0) {
-        Serial.println("DHT22 premiere lecture invalide, retry dans 2.5s...");
-        delay(2500);
-        temperature = dht.readTemperature();
-        humidity = dht.readHumidity();
-    }
-
-    // Log pour debug
-    Serial.print("DHT22 - Temp: "); Serial.print(temperature);
-    Serial.print(" / Hum: "); Serial.println(humidity);
 
     esp_adc_cal_characteristics_t adc_chars;
     esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
 
-    // Lecture batterie
     uint16_t batteryADC = analogRead(BATTERY_PIN);
     uint32_t batteryVoltage = esp_adc_cal_raw_to_voltage(batteryADC, &adc_chars) * 2;
-    float batteryV = batteryVoltage / 1000.0;
 
-    // === PROTECTION BATTERIE ===
-    if (batteryV < BATTERY_CRITICAL_V) {
-        Serial.print("BATTERIE CRITIQUE : ");
-        Serial.print(batteryV, 2);
-        Serial.println("V - Pas d'envoi");
-        return;
-    }
-
-    // Lecture solaire
     uint16_t solarADC = analogRead(SOLAR_PIN);
     uint32_t solarVoltage = esp_adc_cal_raw_to_voltage(solarADC, &adc_chars) * 2;
 
-    // Lecture vent
     float windDirection = weatherMeterKit.getWindDirection();
     float windSpeed = weatherMeterKit.getWindSpeed();
-    delay(3000);
+    delay(5000);
     float windSpeedTheSecond = weatherMeterKit.getWindSpeed();
     windSpeed = (windSpeed + windSpeedTheSecond) / 2;
 
-    // Calcul pluie depuis dernier envoi
     float totalRainfall = (rainCount - lastSentRainCount) * 0.2794;
 
-    // null au lieu de nan si le DHT22 ne repond pas
-    String tempStr = isnan(temperature) ? "null" : String(temperature, 2);
-    String humStr = isnan(humidity) ? "null" : String(humidity, 2);
-
-    // Construction JSON
-    String post_body = "{\"temperature\":" + tempStr +
-                   ", \"humidity\":" + humStr +
-                   ", \"battery_voltage\":" + String(batteryV, 2) +
+    String post_body = "{\"temperature\":" + String(temperature, 2) +
+                   ", \"humidity\":" + String(humidity, 2) +
+                   ", \"battery_voltage\":" + String(batteryVoltage / 1000.0, 2) +
                    ", \"solar_charging_voltage\":" + String(solarVoltage / 1000.0, 2) +
                    ", \"wind_heading\":" + String(windDirection, 3) +
                    ", \"wind_speed\":" + String(windSpeed, 3) +
@@ -376,7 +323,6 @@ void readAndSendData() {
     lastSentRainCount = rainCount;
 }
 
-// === BOUCLE PRINCIPALE ===
 void loop() {
     readAndSendData();
 
@@ -401,7 +347,6 @@ void loop() {
     goToSleep();
 }
 
-// === DORMIR ===
 void goToSleep() {
     Serial.println("Preparing to sleep");
 
@@ -410,12 +355,7 @@ void goToSleep() {
     gpio_hold_en((gpio_num_t)MODEM_DTR_PIN);
 
     digitalWrite(BOARD_POWERON_PIN, LOW);
-
-    // Deux sources de reveil :
-    // 1. Timer (5 minutes)
-    // 2. Pluviometre (GPIO 32, niveau LOW)
-    unsigned long sleepTime = TIME_TO_SLEEP;
-    esp_sleep_enable_timer_wakeup(sleepTime * uS_TO_S_FACTOR);
+    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_32, 0);
 
     Serial.println("Going to sleep now");
