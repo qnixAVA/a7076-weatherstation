@@ -11,7 +11,7 @@
 #include <DHT.h>
 
 #define uS_TO_S_FACTOR 1000000ULL
-#define TIME_TO_SLEEP 160
+#define TIME_TO_SLEEP 300
 #define RAIN_AWAKE_MS 360000   // 6 minutes max en mode pluie
 #define RAIN_MAX_EXTENSIONS 4  // 4 envois supplementaires max en mode pluie
 
