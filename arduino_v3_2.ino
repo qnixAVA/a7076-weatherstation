@@ -39,6 +39,12 @@ RTC_DATA_ATTR int cumulativeRainCount = 0;
 RTC_DATA_ATTR int lastSentRainCount = 0;
 RTC_DATA_ATTR bool wokeFromRain = false;
 
+// Compteurs de debug pour analyse post-test
+RTC_DATA_ATTR int wakeupRainCount = 0;    // Nombre de reveils par pluie (EXT0)
+RTC_DATA_ATTR int timerWakeupCount = 0;   // Nombre de reveils par timer
+RTC_DATA_ATTR int isrTriggerCount = 0;    // Nombre total d'appels a rainISR()
+RTC_DATA_ATTR uint32_t lastWakeupMs = 0;  // millis() au dernier reveil
+
 Ticker debounceTimer;
 
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
@@ -46,6 +52,7 @@ SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_
 void IRAM_ATTR rainISR() {
     rainCount++;
     cumulativeRainCount++;
+    isrTriggerCount++;  // Debug : compter chaque appel ISR
     detachInterrupt(digitalPinToInterrupt(RAINFALL_PIN));
     debounceTimer.attach_ms(1000, []() {
         attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
@@ -130,8 +137,12 @@ void setup() {
 
     // Log de la raison du reveil
     esp_sleep_wakeup_cause_t wakeupCause = esp_sleep_get_wakeup_cause();
+    uint32_t intervalMs = millis() - lastWakeupMs;
+    lastWakeupMs = millis();
+
     if (wakeupCause == ESP_SLEEP_WAKEUP_EXT0) {
         Serial.println("[BOOT] Reveil par pluie (EXT0)");
+        wakeupRainCount++;
         // CORRECTION v3.2 : suppression du double compte au boot
         // L'ISR a deja compte la bascule pendant le reveil
         // rainCount++; // SUPPRIME
@@ -139,11 +150,12 @@ void setup() {
         wokeFromRain = true;
     } else if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
         Serial.println("[BOOT] Reveil par timer");
+        timerWakeupCount++;
     } else {
         Serial.printf("[BOOT] Reveil cause=%d\n", wakeupCause);
     }
-    Serial.printf("[BOOT] rainCount=%d cumulativeRainCount=%d lastSentRainCount=%d\n", 
-        rainCount, cumulativeRainCount, lastSentRainCount);
+    Serial.printf("[BOOT] rainCount=%d cumulative=%d lastSent=%d isrCount=%d rainWakeups=%d timerWakeups=%d interval=%lums\n",
+        rainCount, cumulativeRainCount, lastSentRainCount, isrTriggerCount, wakeupRainCount, timerWakeupCount, intervalMs);
 
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
     calibrationParams.vaneADCValues[WMK_ANGLE_0_0] = 3143;
@@ -339,7 +351,12 @@ void readAndSendData() {
                    ", \"wind_heading\":" + String(windDirection, 3) +
                    ", \"wind_speed\":" + String(windSpeed, 3) +
                    ", \"total_rainfall\":" + String(totalRainfall, 3) +
-                   ", \"cumulative_rainfall\":" + String(cumulativeRainCount * 0.2794, 3) + "}";
+                   ", \"cumulative_rainfall\":" + String(cumulativeRainCount * 0.2794, 3) +
+                   ", \"wakeup_rain_count\":" + String(wakeupRainCount) +
+                   ", \"timer_wakeup_count\":" + String(timerWakeupCount) +
+                   ", \"isr_trigger_count\":" + String(isrTriggerCount) +
+                   ", \"rain_count\":" + String(rainCount) +
+                   ", \"last_sent_rain_count\":" + String(lastSentRainCount) + "}";
 
     Serial.println(post_body);
 
