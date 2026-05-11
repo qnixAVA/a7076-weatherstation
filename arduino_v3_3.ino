@@ -45,11 +45,20 @@ RTC_DATA_ATTR int timerWakeupCount = 0;   // Nombre de reveils par timer
 RTC_DATA_ATTR int isrTriggerCount = 0;    // Nombre total d'appels a rainISR()
 RTC_DATA_ATTR uint32_t lastWakeupMs = 0;  // millis() au dernier reveil
 
+// v3.3 : Flag pour eviter le double comptage au boot
+// Si le reed switch rebondit au boot, l'ISR est declenchee APRES le compte manuel
+// Ce flag ignore ce premier front d'ISR pour ne pas compter 2x
+volatile bool skipNextRainISR = false;
+
 Ticker debounceTimer;
 
 SFEWeatherMeterKit weatherMeterKit(WIND_DIRECTION_PIN, WIND_SPEED_PIN, RAINFALL_PIN);
 
 void IRAM_ATTR rainISR() {
+    if (skipNextRainISR) {
+        skipNextRainISR = false;
+        return;  // Ignorer ce front (rebond du boot deja compte manuellement)
+    }
     rainCount++;
     cumulativeRainCount++;
     isrTriggerCount++;  // Debug : compter chaque appel ISR
@@ -132,10 +141,9 @@ void setup() {
     digitalWrite(12, HIGH);
     delay(100);
 
-    pinMode(RAINFALL_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
-
-    // Log de la raison du reveil
+    // v3.3 : Tester le wakeup cause AVANT d'attacher l'ISR
+    // Cela permet de compter manuellement la bascule qui a reveille l'ESP
+    // sans que l'ISR ne la compte en plus (rebond au boot)
     esp_sleep_wakeup_cause_t wakeupCause = esp_sleep_get_wakeup_cause();
     uint32_t intervalMs = millis() - lastWakeupMs;
     lastWakeupMs = millis();
@@ -143,10 +151,12 @@ void setup() {
     if (wakeupCause == ESP_SLEEP_WAKEUP_EXT0) {
         Serial.println("[BOOT] Reveil par pluie (EXT0)");
         wakeupRainCount++;
-        // CORRECTION v3.2 : suppression du double compte au boot
-        // L'ISR a deja compte la bascule pendant le reveil
-        // rainCount++; // SUPPRIME
-        // cumulativeRainCount++; // SUPPRIME
+        // Compte manuel de la bascule qui a reveille l'ESP
+        // L'ISR ne la comptera pas car skipNextRainISR = true
+        rainCount++;
+        cumulativeRainCount++;
+        isrTriggerCount++;
+        skipNextRainISR = true;  // Ignorer le prochain front (rebond au boot)
         wokeFromRain = true;
     } else if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
         Serial.println("[BOOT] Reveil par timer");
@@ -154,8 +164,19 @@ void setup() {
     } else {
         Serial.printf("[BOOT] Reveil cause=%d\n", wakeupCause);
     }
-    Serial.printf("[BOOT] rainCount=%d cumulative=%d lastSent=%d isrCount=%d rainWakeups=%d timerWakeups=%d interval=%lums\n",
-        rainCount, cumulativeRainCount, lastSentRainCount, isrTriggerCount, wakeupRainCount, timerWakeupCount, intervalMs);
+
+    pinMode(RAINFALL_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(RAINFALL_PIN), rainISR, FALLING);
+
+    // v3.3 : Attendre que le reed switch se stabilise (rebond potentiel)
+    // Si le rebond arrive, l'ISR est declenchee mais ignoree (skipNextRainISR = true)
+    // Si le rebond n'arrive pas, on annule le skip pour ne pas perdre la prochaine bascule
+    delay(200);
+    skipNextRainISR = false;
+
+    Serial.printf("[BOOT] rainCount=%d cumulative=%d lastSent=%d isrCount=%d rainWakeups=%d timerWakeups=%d interval=%lums skip=%s\n",
+        rainCount, cumulativeRainCount, lastSentRainCount, isrTriggerCount, wakeupRainCount, timerWakeupCount, intervalMs,
+        skipNextRainISR ? "true" : "false");
 
     SFEWeatherMeterKitCalibrationParams calibrationParams = weatherMeterKit.getCalibrationParams();
     calibrationParams.vaneADCValues[WMK_ANGLE_0_0] = 3143;
